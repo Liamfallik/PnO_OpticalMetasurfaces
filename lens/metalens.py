@@ -12,7 +12,7 @@ from scipy import special, signal
 import datetime
 import requests # send notifications
 
-scriptName = "metalens2_img" #sdsd
+scriptName = "metalens2_img"
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
