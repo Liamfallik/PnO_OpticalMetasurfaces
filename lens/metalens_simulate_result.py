@@ -49,7 +49,7 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     # Filter the response
     return mpa.simple_2d_filter(x, h)
 
-scriptName = "metalens_1layer"
+scriptName = "metalens_empty3"
 
 # checking if the directory demo_folder exist or not.
 if not os.path.exists("./" + scriptName + "_img"):
@@ -94,13 +94,14 @@ filter_radius = mpa.get_conic_radius_from_eta_e(minimum_length, eta_e)
 design_region_resolution = int(resolution)
 
 # Boundary conditions
-pml_layers = [mp.PML(pml_size)]
+# pml_layers = [mp.PML(pml_size)]
+pml_layers = [mp.PML(pml_size, direction=d) for d in [mp.Y]] # only PML in y-direction
 
 fcen = 1 / 1.55 # Middle frequency of source
 width = 0.2 # Relative width of frequency
 fwidth = width * fcen # Absolute width of frequency
 source_center = [0, -(design_region_height / 2 + 1.5), 0] # Source 1.5 µm below lens
-source_size = mp.Vector3(design_region_width, 0, 0) # Source covers width of lens
+source_size = mp.Vector3(Sx, 0, 0) # Source covers width of lens # design_region_width instead of Sx
 src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
 source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
 
@@ -154,11 +155,12 @@ geometry = [
 ]
 
 # Set-up simulation object
-kpoint = mp.Vector3()
+kpoint = mp.Vector3(x=Sx) # set periodic boundary conditions in x-direction
 sim = mp.Simulation(
     cell_size=cell_size,
     boundary_layers=pml_layers,
     geometry=geometry,
+    k_point= kpoint,
     sources=source,
     default_material=Air,
     symmetries=[mp.Mirror(direction=mp.X)],
@@ -192,9 +194,10 @@ opt = mpa.OptimizationProblem(
 
 # Upload x
 # file_path = filedialog.askopenfilename(filetypes=[("Numpy Files", "*.npy")], initialdir='\\wsl.localhost\\Ubuntu-22.04\\home\\willem\\PO_Nano_code')
-file_path = "x.npy"
-with open(file_path, 'rb') as f:
-    x = np.load(f)
+# file_path = "x.npy"
+# with open(file_path, 'rb') as f:
+#     x = np.load(f)
+x = np.zeros(Nx,)
 
 # insert dummy parameter bounds and variable
 x = np.insert(x, 0, -1)  # our initial guess for the worst error
@@ -230,7 +233,7 @@ plt.grid(True)
 plt.xlabel("Wavelength (microns)")
 plt.ylabel("|Ez|^2 Intensities")
 fileName = f"./" + scriptName + "_img/intensities.png"
-# plt.savefig(fileName)
+plt.savefig(fileName)
 
 # Plot fields
 for freq in frequencies:
