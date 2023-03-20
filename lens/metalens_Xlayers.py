@@ -22,7 +22,10 @@ def sendNotification(message):
     method = '/sendMessage'
     url = f"https://api.telegram.org/bot{token}"
     params = {"chat_id": myuserid, "text": message}
-    r = requests.get(url + method, params=params)
+    try:
+        r = requests.get(url + method, params=params)
+    except:
+        print("No internet connection: couldn't send notification...")
 
 
 def sendPhoto(image_path):
@@ -31,51 +34,11 @@ def sendPhoto(image_path):
     data = {"chat_id": myuserid}
     url = f"https://api.telegram.org/bot{token}" + "/sendPhoto"
     with open(image_path, "rb") as image_file:
-        ret = requests.post(url, data=data, files={"photo": image_file})
-    return ret.json()
-
-
-def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
-    """A linear conic filter, also known as a "Hat" filter in the literature [1].
-
-    Parameters
-    ----------
-    x : array_like (2D)
-        Design parameters
-    radius : float
-        Filter radius (in "meep units")
-    Lx : float
-        Length of design region in X direction (in "meep units")
-    Ly : float
-        Length of design region in Y direction (in "meep units")
-    resolution : int
-        Resolution of the design grid (not the meep simulation resolution)
-
-    Returns
-    -------
-    array_like (2D)
-        Filtered design parameters.
-
-    References
-    ----------
-    [1] Lazarov, B. S., Wang, F., & Sigmund, O. (2016). Length scale and manufacturability in
-    density-based topology optimization. Archive of Applied Mechanics, 86(1-2), 189-218.
-    """
-
-    xv = np.arange(0, Lx / 2, Lx / Nx) # Lx / Nx instead of 1 / resolution
-    yv = np.arange(0, Ly / 2, Ly / Ny)
-
-    X, Y = np.meshgrid(xv, yv, sparse=True, indexing="ij")
-    h = np.where(
-        X**2 + Y**2 < radius**2, (1 - np.sqrt(abs(X**2 + Y**2)) / radius), 0
-    )
-
-    filtered_x = np.zeros([Nx, Ny*num_layers])
-    for i in range(num_layers):
-        xi = x[i*Nx*Ny:(i+1)*Nx*Ny].reshape(Nx, Ny) # Select a design region and ensure the input is 2D
-        filtered_x[:, i*Ny:(i+1)*Ny] = mpa.simple_2d_filter(xi, h) # apply filter
-    print(np.shape(filtered_x))
-    return filtered_x
+        try:
+            ret = requests.post(url, data=data, files={"photo": image_file})
+            return ret.json()
+        except:
+            print("No internet connection: couldn't send notification...")
 
 
 # checking if the directory demo_folder
@@ -138,7 +101,7 @@ source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center
 
 # Amount of variables
 Nx = int(design_region_resolution * design_region_width)
-Ny = 1 # int(design_region_resolution * design_region_height)
+Ny = int(1) # int(design_region_resolution * design_region_height)
 
 
 design_variables = mp.MaterialGrid(mp.Vector3(Nx, Ny), SiO2, NbOx, grid_type="U_MEAN")
@@ -154,11 +117,54 @@ for i in range(num_layers):
     )
 
 
+def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
+    """A linear conic filter, also known as a "Hat" filter in the literature [1].
+
+    Parameters
+    ----------
+    x : array_like (2D)
+        Design parameters
+    radius : float
+        Filter radius (in "meep units")
+    Lx : float
+        Length of design region in X direction (in "meep units")
+    Ly : float
+        Length of design region in Y direction (in "meep units")
+    resolution : int
+        Resolution of the design grid (not the meep simulation resolution)
+
+    Returns
+    -------
+    array_like (2D)
+        Filtered design parameters.
+
+    References
+    ----------
+    [1] Lazarov, B. S., Wang, F., & Sigmund, O. (2016). Length scale and manufacturability in
+    density-based topology optimization. Archive of Applied Mechanics, 86(1-2), 189-218.
+    """
+
+    xv = np.arange(0, Lx / 2, Lx / Nx) # Lx / Nx instead of 1 / resolution
+    yv = np.arange(0, Ly / 2, Ly / Ny)
+
+    X, Y = np.meshgrid(xv, yv, sparse=True, indexing="ij")
+    h = np.where(
+        X**2 + Y**2 < radius**2, (1 - np.sqrt(abs(X**2 + Y**2)) / radius), 0
+    )
+
+    # filtered_x = np.zeros([Nx, Ny*num_layers])
+    filtered_x = []
+    for i in range(num_layers):
+        xi = x[i*Nx*Ny:(i+1)*Nx*Ny].reshape(Nx, Ny) # Select a design region and ensure the input is 2D
+        # filtered_x[:, i*Ny:(i+1)*Ny] = mpa.simple_2d_filter(xi, h) # apply filter
+        filtered_x.append(mpa.simple_2d_filter(xi, h)) # apply filter
+    return filtered_x
+
 # Filter and projection
-def mapping(x, eta, beta):
+def mapping(x, eta, beta, flat=False):
 
     # filter
-    filtered_field = conic_filter2( # remain minimum feature size
+    filtered_fields = conic_filter2( # remain minimum feature size
         x,
         filter_radius,
         design_region_width,
@@ -167,17 +173,25 @@ def mapping(x, eta, beta):
         Ny
     )
 
-    # projection
-    projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary
+    filt_and_proj_fields = []
+    for filtered_field in filtered_fields:
+        # projection
+        projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary
 
-    projected_field = (
-        npa.flipud(projected_field) + projected_field
-    ) / 2  # left-right symmetry
+        projected_field = (
+            npa.flipud(projected_field) + projected_field
+        ) / 2  # left-right symmetry
+        # print(flat)
+        if flat:
+            filt_and_proj_fields.extend(projected_field.flatten())
+            # print(np.shape(filt_and_proj_fields))
+        else:
+            filt_and_proj_fields.append(projected_field.flatten())
 
-    dgsgs = projected_field.flatten()
-    print(np.shape(dgsgs))
-    # interpolate to actual materials
-    return dgsgs
+
+
+
+    return filt_and_proj_fields
 
 # Geometry: all is design region, no fixed parts
 geometry = [
@@ -247,10 +261,25 @@ def f(v, gradient, cur_beta):
     cur_iter[0] += 1
 
 
-    f0, dJ_du = opt([mapping(v, eta_i, cur_beta)]) # compute objective and gradient
+    filt_proj_field = mapping(v, eta_i, cur_beta)
+    if np.array(filt_proj_field).ndim > 1:
+        f0, dJ_du = opt(filt_proj_field)
+    else:
+        f0, dJ_du = opt([filt_proj_field])
+
+    # flatten: merge all design regions in 1 large vector
+    if np.array(dJ_du).ndim == 3:
+        dJ_du_shape = np.shape(dJ_du)
+        dJ_du = np.reshape(dJ_du, [dJ_du_shape[0]*dJ_du_shape[1], dJ_du_shape[2]])
 
     if gradient.size > 0:
-        gradient[:] = tensor_jacobian_product(mapping, 0)(
+        # print("shape v = " + str(np.shape(v)))
+        # print("shape dJ_du = " + str(np.shape(dJ_du)))
+        # sgfd = np.sum(dJ_du, axis=1)
+        # print(sgfd)
+        # print(np.shape(sgfd))
+
+        gradient[:] = tensor_jacobian_product(lambda x, eta, beta: mapping(x, eta, beta, flat=True), 0)(
             v, eta_i, cur_beta, np.sum(dJ_du, axis=1)
         )  # backprop
 
@@ -298,11 +327,11 @@ opt.step_funcs=[mp.at_end(animate), mp.at_end(animateField)]
 
 # Method of moving  asymptotes
 algorithm = nlopt.LD_MMA
-n = num_layers * Nx * Ny  # number of parameters
+n = int(num_layers * Nx * Ny)  # number of parameters
 
 # Initial guess
-x = np.ones((n,)) * 0.5 # average everywhere
-# x = np.random.rand(n)
+# x = np.ones((n,)) * 0.5 # average everywhere
+x = np.random.rand(n)
 
 # lower and upper bounds
 lb = np.zeros((n,))
