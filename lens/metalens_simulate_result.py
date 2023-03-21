@@ -49,7 +49,7 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     # Filter the response
     return mpa.simple_2d_filter(x, h)
 
-scriptName = "metalens_empty_contin2"
+scriptName = "metalens_empty_contin"
 
 # checking if the directory demo_folder exist or not.
 if not os.path.exists("./" + scriptName + "_img"):
@@ -204,49 +204,33 @@ x = np.insert(x, 0, -1)  # our initial guess for the worst error
 
 cur_beta = 256 # 4
 
-# Plot final design
-opt.update_design([mapping(x[1:], eta_i, cur_beta)])
-plt.figure()
-ax = plt.gca()
-opt.plot2D(
-    False,
-    ax=ax,
-    plot_sources_flag=False,
-    plot_monitors_flag=False,
-    plot_boundaries_flag=False,
-)
-circ = Circle((2, 2), minimum_length / 2)
-ax.add_patch(circ)
-ax.axis("off")
-# plt.savefig(f"./" + scriptName + "_img/finalDesign.png")
-
 # Check intensities in optimal design
-f0, dJ_du = opt([mapping(x[1:], eta_i, cur_beta // 2)], need_gradient=False)
-frequencies = opt.frequencies
-
-intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
-
-# Plot intensities
-plt.figure()
-plt.plot(1 / frequencies, intensities, "-o")
-plt.grid(True)
-plt.xlabel("Wavelength (microns)")
-plt.ylabel("|Ez|^2 Intensities")
-fileName = f"./" + scriptName + "_img/intensities.png"
-plt.savefig(fileName)
+# f0, dJ_du = opt([mapping(x[1:], eta_i, cur_beta // 2)], need_gradient=False)
+# frequencies = opt.frequencies
+#
+# intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
+#
+# # Plot intensities
+# plt.figure()
+# plt.plot(1 / frequencies, intensities, "-o")
+# plt.grid(True)
+# plt.xlabel("Wavelength (microns)")
+# plt.ylabel("|Ez|^2 Intensities")
+# fileName = f"./" + scriptName + "_img/intensities.png"
+# plt.savefig(fileName)
 
 # Plot fields
 for freq in frequencies:
     opt.sim = mp.Simulation(
         cell_size=mp.Vector3(Sx, 40),
         boundary_layers=pml_layers,
-        k_point=kpoint,
+        # k_point=kpoint,
         geometry=geometry,
         sources=source,
         default_material=Air,
         resolution=resolution,
     )
-    src = mp.ContinuousSource(frequency=freq, fwidth=fwidth)
+    src = mp.ContinuousSource(frequency=freq)
     source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
     opt.sim.change_sources(source)
 
@@ -256,7 +240,7 @@ for freq in frequencies:
     fileName = f"./" + scriptName + "_img/fieldAtWavelength" + str(1/freq) + ".png"
     plt.savefig(fileName)
 
-np.save("x", x)
+np.save("./" + scriptName + "_img/x.npy", x)
 
 plt.close()
 
