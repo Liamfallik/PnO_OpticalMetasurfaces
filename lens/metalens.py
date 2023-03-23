@@ -111,6 +111,8 @@ def mapping(x, eta, beta):
         design_region_height,
         design_region_resolution,
     )
+    print(filtered_field)
+    print(np.shape(filtered_field))
 
     # projection
     projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary

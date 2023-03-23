@@ -13,8 +13,8 @@ import random
 import datetime
 import requests # send notifications
 
+scriptName = "metalens_Xlayers_simplified_img"
 num_layers = 2
-scriptName = "metalens_Xlayers_vectored_Air-NbOx_img"
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -22,10 +22,7 @@ def sendNotification(message):
     method = '/sendMessage'
     url = f"https://api.telegram.org/bot{token}"
     params = {"chat_id": myuserid, "text": message}
-    try:
-        r = requests.get(url + method, params=params)
-    except:
-        print("No internet connection: couldn't send notification...")
+    r = requests.get(url + method, params=params)
 
 
 def sendPhoto(image_path):
@@ -34,87 +31,9 @@ def sendPhoto(image_path):
     data = {"chat_id": myuserid}
     url = f"https://api.telegram.org/bot{token}" + "/sendPhoto"
     with open(image_path, "rb") as image_file:
-        try:
-            ret = requests.post(url, data=data, files={"photo": image_file})
-            return ret.json()
-        except:
-            print("No internet connection: couldn't send notification...")
+        ret = requests.post(url, data=data, files={"photo": image_file})
+    return ret.json()
 
-
-# checking if the directory demo_folder
-# exist or not.
-if not os.path.exists("./" + scriptName):
-    # if the demo_folder directory is not present
-    # then create it.
-    os.makedirs("./" + scriptName)
-
-mp.verbosity(0) # amount of info printed during simulation
-
-# Materials
-Si = mp.Medium(index=3.4)
-SiO2 = mp.Medium(index=1.45)
-NbOx = mp.Medium(index=2.5)
-TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
-Air = mp.Medium(index=1.0)
-
-# Dimensions
-design_region_width =  [4] * num_layers
-design_region_height = [0.3] * num_layers
-half_total_heigth = sum(design_region_height) / 2
-empty_space = 0
-
-# Boundary conditions
-pml_size = 1.0
-seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
-np.random.seed(seed)
-resolution = 50 # 50 > 49
-
-# System size
-Sx = 2 * pml_size + max(design_region_width) + 2 * empty_space
-Sy = 2 * pml_size + sum(design_region_height) + 2 # + 5
-cell_size = mp.Vector3(Sx, Sy)
-
-# Frequencies
-nf = 3 # Amount of frequencies studied
-# frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
-frequencies = 1./np.linspace(0.55, 0.65, 3)
-
-# Feature size constraints
-minimum_length = 0.09  # minimum length scale (microns)
-eta_i = (
-    0.5  # blueprint (or intermediate) design field thresholding point (between 0 and 1)
-)
-eta_e = 0.55  # erosion design field thresholding point (between 0 and 1)
-eta_d = 1 - eta_e  # dilation design field thresholding point (between 0 and 1)
-filter_radius = mpa.get_conic_radius_from_eta_e(minimum_length, eta_e)
-design_region_resolution = int(resolution)
-
-# Boundary conditions
-pml_layers = [mp.PML(pml_size)]
-
-fcen = 1 / 1.55 # Middle frequency of source
-width = 0.2 # Relative width of frequency
-fwidth = width * fcen # Absolute width of frequency
-source_center = [0, -(half_total_heigth + 0.75), 0] # normally 1.5 instead of 0.75 # Source 1.5 µm below lens
-source_size = mp.Vector3(max(design_region_width) + 2*empty_space, 0, 0) # Source covers width of lens
-src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
-source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
-
-# Amount of variables
-Nx = [int(design_region_resolution * width_design) for width_design in design_region_width]
-Ny = [int(1) for j in range(num_layers)] # int(design_region_resolution * design_region_height)
-
-
-design_variables = [mp.MaterialGrid(mp.Vector3(Nx[i], Ny[i]), Air, NbOx, grid_type="U_MEAN") for i in range(num_layers)]
-print(design_variables)
-design_regions = [mpa.DesignRegion(
-        design_variables[i],
-        volume=mp.Volume(
-            center=mp.Vector3(y = -half_total_heigth + sum(design_region_height[:i]) + design_region_height[i] / 2),
-            size=mp.Vector3(design_region_width[i], design_region_height[i], 0),
-        ),
-    ) for i in range(num_layers)]
-print(design_regions)
 
 def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     """A linear conic filter, also known as a "Hat" filter in the literature [1].
@@ -142,62 +61,144 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     [1] Lazarov, B. S., Wang, F., & Sigmund, O. (2016). Length scale and manufacturability in
     density-based topology optimization. Archive of Applied Mechanics, 86(1-2), 189-218.
     """
+    x = x.reshape(Nx, Ny)  # Ensure the input is 2D
 
+    xv = np.arange(0, Lx / 2, Lx / Nx) # Lx / Nx instead of 1 / resolution
+    yv = np.arange(0, Ly / 2, Ly / Ny)
 
-    # filtered_x = np.zeros([Nx, Ny*num_layers])
-    filtered_x = []
-    done = 0
-    for i in range(num_layers):
-        xv = np.arange(0, Lx[i] / 2, Lx[i] / Nx[i])  # Lx / Nx instead of 1 / resolution
-        yv = np.arange(0, Ly[i] / 2, Ly[i] / Ny[i])
-
-        X, Y = np.meshgrid(xv, yv, sparse=True, indexing="ij")
-        h = np.where(
-            X ** 2 + Y ** 2 < radius ** 2, (1 - np.sqrt(abs(X ** 2 + Y ** 2)) / radius), 0
-        )
-
-        step = Nx[i]*Ny[i]
-        xi = x[done:done+step].reshape(Nx[i], Ny[i]) # Select a design region and ensure the input is 2D
-        done += step
-        # filtered_x[:, i*Ny:(i+1)*Ny] = mpa.simple_2d_filter(xi, h) # apply filter
-        filtered_x.append(mpa.simple_2d_filter(xi, h)) # apply filter
-    return filtered_x
-
-# Filter and projection
-def mapping(x, eta, beta, flat=False):
-
-    # filter
-    filtered_fields = conic_filter2( # remain minimum feature size
-        x,
-        filter_radius,
-        design_region_width,
-        design_region_height,
-        Nx,
-        Ny
+    X, Y = np.meshgrid(xv, yv, sparse=True, indexing="ij")
+    h = np.where(
+        X**2 + Y**2 < radius**2, (1 - np.sqrt(abs(X**2 + Y**2)) / radius), 0
     )
 
-    filt_and_proj_fields = []
-    for filtered_field in filtered_fields:
-        # projection
-        projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary
+    # Filter the response
+    return mpa.simple_2d_filter(x, h)
 
-        projected_field = (
-            npa.flipud(projected_field) + projected_field
-        ) / 2  # left-right symmetry
-        # print(flat)
-        if flat:
-            filt_and_proj_fields.extend(projected_field.flatten())
-            # print(np.shape(filt_and_proj_fields))
+
+# checking if the directory demo_folder
+# exist or not.
+if not os.path.exists("./" + scriptName):
+    # if the demo_folder directory is not present
+    # then create it.
+    os.makedirs("./" + scriptName)
+
+mp.verbosity(0) # amount of info printed during simulation
+
+# Materials
+Si = mp.Medium(index=3.4)
+SiO2 = mp.Medium(index=1.45)
+NbOx = mp.Medium(index=2.5)
+TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
+Air = mp.Medium(index=1.0)
+
+# Dimensions
+design_region_width =  4
+design_region_height = 0.3
+half_total_heigth = num_layers * design_region_height / 2
+empty_space = 0
+
+# Boundary conditions
+pml_size = 1.0
+seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
+np.random.seed(seed)
+resolution = 50 # 50 > 49
+
+# System size
+Sx = 2 * pml_size + design_region_width + 2 * empty_space
+Sy = 2 * pml_size + num_layers * design_region_height + 2 # + 5
+cell_size = mp.Vector3(Sx, Sy)
+
+# Frequencies
+nf = 3 # Amount of frequencies studied
+# frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
+frequencies = 1./np.linspace(1.5, 1.6, 3)
+
+# Feature size constraints
+minimum_length = 0.09  # minimum length scale (microns)
+eta_i = (
+    0.5  # blueprint (or intermediate) design field thresholding point (between 0 and 1)
+)
+eta_e = 0.55  # erosion design field thresholding point (between 0 and 1)
+eta_d = 1 - eta_e  # dilation design field thresholding point (between 0 and 1)
+filter_radius = mpa.get_conic_radius_from_eta_e(minimum_length, eta_e)
+design_region_resolution = int(resolution)
+
+# Boundary conditions
+pml_layers = [mp.PML(pml_size)]
+
+fcen = 1 / 1.55 # Middle frequency of source
+width = 0.2 # Relative width of frequency
+fwidth = width * fcen # Absolute width of frequency
+source_center = [0, -(half_total_heigth + 0.75), 0] # Source 0.75 µm below lens
+source_size = mp.Vector3(design_region_width, 0, 0) # Source covers width of lens
+src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
+source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+
+# Amount of variables
+Nx = int(design_region_resolution * design_region_width)
+Ny = int(1)
+
+
+design_variables = mp.MaterialGrid(mp.Vector3(Nx, num_layers*Ny), Air, Si, grid_type="U_MEAN")
+design_region = mpa.DesignRegion(
+    design_variables,
+    volume=mp.Volume(
+        center=mp.Vector3(),
+        size=mp.Vector3(design_region_width, 2*half_total_heigth, 0),
+    ),
+)
+
+
+# Filter and projection
+def mapping(x, eta, beta):
+
+    # filter
+    filtered_fields = np.zeros([Nx, Ny*num_layers])
+
+    for i in range(num_layers):
+        filtered_field = conic_filter2(  # remain minimum feature size
+            x[Nx * Ny * i:Nx * Ny * (i + 1)],
+            filter_radius,
+            design_region_width,
+            design_region_height,
+            Nx,
+            Ny
+        )
+
+        if type(filtered_field[0]) == type(filtered_fields):
+            filtered_fields[:, i:i + 1] = filtered_field
         else:
-            filt_and_proj_fields.append(projected_field.flatten())
+            for j in range(len(filtered_field)):
+                filtered_fields[j, i] = filtered_field[j]._value
+        # if i == 0:
+        #     filtered_fields = filtered_field
+        # else:
+        #     filtered_fields = list(map(lambda j: filtered_fields[j].extend(filtered_field[j]), range(len(filtered_field))))
 
-    return filt_and_proj_fields
+    # filtered_field = conic_filter2( # remain minimum feature size
+    #     x,
+    #     filter_radius,
+    #     design_region_width,
+    #     design_region_height,
+    #     Nx,
+    #     Ny
+    # )
+
+    # projection
+    projected_field = mpa.tanh_projection(filtered_fields, beta, eta) # Make binary
+
+    projected_field = (
+        npa.flipud(projected_field) + projected_field
+    ) / 2  # left-right symmetry
+
+    # interpolate to actual materials
+    return projected_field.flatten()
 
 # Geometry: all is design region, no fixed parts
 geometry = [
     mp.Block(
-        center=design_region.center, size=design_region.size, material=design_region.design_parameters
-    ) for design_region in design_regions
+        center=design_region.center, size=design_region.size, material=design_variables
+    ),
     # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
     #
     # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
@@ -218,11 +219,11 @@ sim = mp.Simulation(
 )
 
 # Focus point, 7.5 µm beyond centre of lens
-far_x = [mp.Vector3(0, 7.5, 0)] # used to be 15
+far_x = [mp.Vector3(0, 7.5, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, half_total_heigth + 0.75), # normally 1.5 instead of 0.75 # 1.5 µm above lens
-        size=mp.Vector3(max(design_region_width) + 2*empty_space, 0), # spans design region
+        center=mp.Vector3(0, half_total_heigth + 0.75), # 0.75 µm above lens
+        size=mp.Vector3(design_region_width, 0), # spans design region
         weight=+1, # field contribution is positive (real)
     )
 ]
@@ -237,7 +238,7 @@ opt = mpa.OptimizationProblem(
     simulation=sim,
     objective_functions=[J1],
     objective_arguments=ob_list,
-    design_regions=design_regions,
+    design_regions=[design_region],
     frequencies=frequencies,
     maximum_run_time=2000,
 )
@@ -260,29 +261,13 @@ def f(v, gradient, cur_beta):
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
 
+    f0, dJ_du = opt([mapping(v, eta_i, cur_beta)])  # compute objective and gradient
 
-    filt_proj_field = mapping(v, eta_i, cur_beta)
-    if np.array(filt_proj_field).ndim > 1:
-        f0, dJ_du = opt(filt_proj_field)
-    else:
-        f0, dJ_du = opt([filt_proj_field])
-
-    # flatten: merge all design regions in 1 large vector
-    if np.array(dJ_du).ndim == 3:
-        dJ_du_shape = np.shape(dJ_du)
-        dJ_du = np.reshape(dJ_du, [dJ_du_shape[0]*dJ_du_shape[1], dJ_du_shape[2]])
-    print(dJ_du)
     if gradient.size > 0:
-        # print("shape v = " + str(np.shape(v)))
-        # print("shape dJ_du = " + str(np.shape(dJ_du)))
-        # sgfd = np.sum(dJ_du, axis=1)
-        # print(sgfd)
-        # print(np.shape(sgfd))
-
-        gradient[:] = tensor_jacobian_product(lambda x, eta, beta: mapping(x, eta, beta, flat=True), 0)(
+        gradient[:] = tensor_jacobian_product(mapping, 0)(
             v, eta_i, cur_beta, np.sum(dJ_du, axis=1)
         )  # backprop
-    print(gradient)
+
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
     plt.figure() # Plot current design
@@ -327,18 +312,16 @@ opt.step_funcs=[mp.at_end(animate), mp.at_end(animateField)]
 
 # Method of moving  asymptotes
 algorithm = nlopt.LD_MMA
-n = [int(Nx[j] * Ny[j]) for j in range(num_layers)]  # number of parameters
+n = Nx * Ny * num_layers  # number of parameters
 
 # Initial guess
 # x = np.ones((n,)) * 0.5 # average everywhere
-# x = [np.random.rand(n[j]) for j in range(num_layers)]
-x = np.random.rand(sum(n))
+x = np.random.rand(n)
 
 # lower and upper bounds
-# lb = [np.zeros((n[j],)) for j in range(num_layers)]
-# ub = [np.ones((n[j],)) for j in range(num_layers)]
-lb = np.zeros(sum(n))
-ub = np.ones(sum(n))
+lb = np.zeros((n,))
+ub = np.ones((n,))
+
 
 cur_beta = 4
 beta_scale = 2
@@ -347,10 +330,10 @@ update_factor = 12
 totalIterations = num_betas * update_factor
 ftol = 1e-5
 start = datetime.datetime.now()
-print(scriptName + "- opitimization started at " + str(start))
+print("Opitimization started at " + str(start))
 sendNotification("Opitimization started at " + str(start))
 for iters in range(num_betas):
-    solver = nlopt.opt(algorithm, sum(n)) #sum or not?
+    solver = nlopt.opt(algorithm, n)
     solver.set_lower_bounds(lb)
     solver.set_upper_bounds(ub)
     solver.set_max_objective(lambda a, g: f(a, g, cur_beta))
@@ -364,10 +347,8 @@ for iters in range(num_betas):
     sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
                         str(start + estimatedSimulationTime))
     np.save("./" + scriptName + "/x", x)
-    print(x)
 
 # Plot final design
-print(x)
 opt.update_design([mapping(x, eta_i, cur_beta)])
 plt.figure()
 ax = plt.gca()
@@ -401,29 +382,5 @@ np.save("./" + scriptName + "/x", x)
 
 animate.to_gif(fps=5, filename="./" + scriptName + "/animation.gif")
 animateField.to_gif(fps=5, filename="./" + scriptName + "/animationField.gif")
-
-
-# Plot fields
-for freq in frequencies:
-    opt.sim = mp.Simulation(
-        cell_size=mp.Vector3(Sx, 20),
-        boundary_layers=pml_layers,
-        k_point=kpoint,
-        geometry=geometry,
-        sources=source,
-        default_material=Air,
-        resolution=resolution,
-    )
-    src = mp.ContinuousSource(frequency=freq, fwidth=fwidth)
-    source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
-    opt.sim.change_sources(source)
-
-    opt.sim.run(until=200)
-    plt.figure(figsize=(10, 20))
-    opt.sim.plot2D(fields=mp.Ez)
-    fileName = f"./" + scriptName + "/fieldAtWavelength" + str(1/freq) + ".png"
-    plt.savefig(fileName)
-
-plt.close()
 
 sendNotification("Simulation finished")
