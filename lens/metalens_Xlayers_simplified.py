@@ -111,7 +111,7 @@ cell_size = mp.Vector3(Sx, Sy)
 # Frequencies
 nf = 3 # Amount of frequencies studied
 # frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
-frequencies = 1./np.linspace(1.5, 1.6, 3)
+frequencies = 1./np.linspace(0.55, 0.65, 3)
 
 # Feature size constraints
 minimum_length = 0.09  # minimum length scale (microns)
@@ -126,7 +126,7 @@ design_region_resolution = int(resolution)
 # Boundary conditions
 pml_layers = [mp.PML(pml_size)]
 
-fcen = 1 / 1.55 # Middle frequency of source
+fcen = 1 / 0.6 # Middle frequency of source
 width = 0.2 # Relative width of frequency
 fwidth = width * fcen # Absolute width of frequency
 source_center = [0, -(half_total_heigth + 0.75), 0] # Source 0.75 µm below lens
@@ -290,7 +290,7 @@ def f(v, gradient, cur_beta):
 animate = Animate2D(
     fields=None,
     # realtime=True,
-    eps_parameters={'contour': False, 'alpha': 1, 'frequency': 1/1.55},
+    eps_parameters={'contour': False, 'alpha': 1, 'frequency': fcen},
     plot_sources_flag=False,
     plot_monitors_flag=False,
     plot_boundaries_flag=False,
@@ -300,7 +300,7 @@ animate = Animate2D(
 animateField = Animate2D(
     fields=mp.Ez,
     # realtime=True,
-    eps_parameters={'contour': False, 'alpha': 1, 'frequency': 1/1.55},
+    eps_parameters={'contour': False, 'alpha': 1, 'frequency': fcen},
     plot_sources_flag=True,
     plot_monitors_flag=True,
     plot_boundaries_flag=True,

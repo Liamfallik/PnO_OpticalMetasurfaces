@@ -12,7 +12,7 @@ from scipy import special, signal
 import datetime
 import requests # send notifications
 
-scriptName = "metalens_1layer_img"
+scriptName = "metalens_1layer2_img"
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -87,8 +87,8 @@ Si = mp.Medium(index=3.4)
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-design_region_width = 15
-design_region_height = 2
+design_region_width = 4
+design_region_height = 0.3
 
 # Boundary conditions
 pml_size = 1.0
@@ -97,13 +97,13 @@ resolution = 30
 
 # System size
 Sx = 2 * pml_size + design_region_width
-Sy = 2 * pml_size + design_region_height + 5
+Sy = 2 * pml_size + design_region_height + 3
 cell_size = mp.Vector3(Sx, Sy)
 
 # Frequencies
 nf = 3 # Amount of frequencies studied
 # frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
-frequencies = 1./np.linspace(1.5, 1.6, 3)
+frequencies = 1./np.linspace(0.55, 0.65, 3)
 
 # Feature size constraints
 minimum_length = 0.09  # minimum length scale (microns)
@@ -118,13 +118,12 @@ design_region_resolution = int(resolution)
 # Boundary conditions
 pml_layers = [mp.PML(pml_size)]
 
-fcen = 1 / 1.55 # Middle frequency of source
-width = 0.2 # Relative width of frequency
-fwidth = width * fcen # Absolute width of frequency
-source_center = [0, -(design_region_height / 2 + 1.5), 0] # Source 1.5 µm below lens
+#source
+fwidth = 0.01
+source_center = [0, -(design_region_height / 2 + 1), 0] # Source 1 µm below lens
 source_size = mp.Vector3(design_region_width, 0, 0) # Source covers width of lens
-src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
-source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+srcs = [mp.GaussianSource(frequency=fcen, fwidth=fwidth) for fcen in frequencies] # Continuous source
+source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center) for src in srcs]
 
 # Amount of variables
 Nx = int(design_region_resolution * design_region_width)
@@ -188,11 +187,11 @@ sim = mp.Simulation(
     resolution=resolution,
 )
 
-# Focus point, 15 µm beyond centre of lens
-far_x = [mp.Vector3(0, 15, 0)]
+# Focus point, 7.5 µm beyond centre of lens
+far_x = [mp.Vector3(0, 7.5, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, design_region_height / 2 + 1.5), # 1.5 µm above lens
+        center=mp.Vector3(0, design_region_height / 2 + 1), # 1.5 µm above lens
         size=mp.Vector3(design_region_width, 0), # spans design region
         weight=+1, # field contribution is positive (real)
     )
@@ -285,7 +284,13 @@ algorithm = nlopt.LD_MMA
 n = Nx * Ny  # number of parameters
 
 # Initial guess
-x = np.ones((n,)) * 0.5 # average everywhere
+# x = np.ones((n,)) * 0.5 # average everywhere
+file_path = "x.npy"
+with open(file_path, 'rb') as f:
+    x = np.load(f)
+
+print(x)
+print(x[len(x)//2])
 
 # lower and upper bounds
 lb = np.zeros((Nx * Ny,))
@@ -351,5 +356,52 @@ np.save("./" + scriptName + "/x", x)
 
 animate.to_gif(fps=5, filename="./" + scriptName + "/animation.gif")
 animateField.to_gif(fps=5, filename="./" + scriptName + "/animationField.gif")
+
+# Plot fields
+# for freq in frequencies:
+#     opt.sim = mp.Simulation(
+#         cell_size=mp.Vector3(Sx, 20),
+#         boundary_layers=pml_layers,
+#         k_point=kpoint,
+#         geometry=geometry,
+#         sources=source,
+#         force_complex_fields=True,
+#         default_material=Air,
+#         resolution=resolution,
+#     )
+#     src = mp.ContinuousSource(frequency=freq)
+#     source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+#     opt.sim.change_sources(source)
+#     sim.init_sim()
+#     sim.solve_cw(1e-10, 10000, 10)
+#     # opt.sim.run(until=200)
+#     plt.figure(figsize=(10, 20))
+#     opt.sim.plot2D(fields=mp.Ez)
+#     fileName = f"./" + scriptName + "/fieldAtWavelength" + str(1/freq) + ".png"
+#     plt.savefig(fileName)
+
+
+# Plot fields
+for freq in frequencies:
+    opt.sim = mp.Simulation(
+        cell_size=mp.Vector3(Sx, 20),
+        boundary_layers=pml_layers,
+        k_point=kpoint,
+        geometry=geometry,
+        sources=source,
+        default_material=Air,
+        resolution=resolution,
+    )
+    src = mp.ContinuousSource(frequency=freq, fwidth=fwidth)
+    source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+    opt.sim.change_sources(source)
+
+    opt.sim.run(until=200)
+    plt.figure(figsize=(10, 20))
+    opt.sim.plot2D(fields=mp.Ez)
+    fileName = f"./" + scriptName + "/fieldAtWavelength" + str(1/freq) + ".png"
+    plt.savefig(fileName)
+
+plt.close()
 
 sendNotification("Simulation finished")
