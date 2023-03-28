@@ -11,8 +11,10 @@ from matplotlib.patches import Circle
 from scipy import special, signal
 import datetime
 import requests # send notifications
+import random
 
-scriptName = "metalens_1layer2_img"
+scriptName = "metalens_2layers2_img"
+symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -92,24 +94,26 @@ Si = mp.Medium(index=3.4)
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-design_region_width = 4
-design_region_height = 0.3
-empty_space = 2
+num_layers = 2 # amount of layers
+design_region_width = 4 # width of layer
+design_region_height = 0.3 # height of layer
+spacing = 0.1 # spacing between layers
+half_total_height = num_layers * design_region_height / 2 + (num_layers - 1) * spacing / 2
+empty_space = 0 # free space in simulation left and right of layer
 
 # Boundary conditions
-pml_size = 1.0
+pml_size = 1.0 # thickness of absorbing boundary layer
 
-resolution = 65
+resolution = 65 # 65 --> amount of grid points per µm
 
 # System size
 Sx = 2 * pml_size + design_region_width + 2 * empty_space
-Sy = 2 * pml_size + design_region_height + 3
+Sy = 2 * pml_size + half_total_height * 2 + 2
 cell_size = mp.Vector3(Sx, Sy)
 
 # Frequencies
 nf = 3 # Amount of frequencies studied
-# frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
-frequencies = 1./np.linspace(0.55, 0.65, 3)
+frequencies = 1./np.linspace(0.55, 0.65, nf)
 
 # Feature size constraints
 minimum_length = 0.09  # minimum length scale (microns)
@@ -119,31 +123,32 @@ eta_i = (
 eta_e = 0.55  # erosion design field thresholding point (between 0 and 1)
 eta_d = 1 - eta_e  # dilation design field thresholding point (between 0 and 1)
 filter_radius = mpa.get_conic_radius_from_eta_e(minimum_length, eta_e)
-design_region_resolution = int(resolution)
+design_region_resolution = int(resolution / 5) # = int(resolution)
 
 # Boundary conditions
 pml_layers = [mp.PML(pml_size)]
 
-#source
-fwidth = 0.01
-source_center = [0, -(design_region_height / 2 + 1), 0] # Source 1 µm below lens
+# Source
+fcen = frequencies[1]
+fwidth = 0.2
+source_center = [0, -(half_total_height + 0.4), 0] # Source 0.4 µm below lens
 source_size = mp.Vector3(design_region_width + 2*empty_space, 0, 0) # Source covers width of lens
-srcs = [mp.GaussianSource(frequency=fcen, fwidth=fwidth) for fcen in frequencies] # Continuous source
-source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center) for src in srcs]
+src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
+source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
 
 # Amount of variables
 Nx = int(design_region_resolution * design_region_width)
 Ny = 1 # int(design_region_resolution * design_region_height)
 
 
-design_variables = mp.MaterialGrid(mp.Vector3(Nx, Ny), Air, Si, grid_type="U_MEAN")
-design_region = mpa.DesignRegion(
-    design_variables,
+design_variables = [mp.MaterialGrid(mp.Vector3(Nx), Air, Si, grid_type="U_MEAN") for i in range(num_layers)]
+design_regions = [mpa.DesignRegion(
+    design_variables[i],
     volume=mp.Volume(
-        center=mp.Vector3(),
+        center=mp.Vector3(y=-half_total_height + (0.5 + i) * design_region_height),
         size=mp.Vector3(design_region_width, design_region_height, 0),
     ),
-)
+) for i in range(num_layers)]
 
 
 # Filter and projection
@@ -162,9 +167,10 @@ def mapping(x, eta, beta):
     # projection
     projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary
 
-    projected_field = (
-        npa.flipud(projected_field) + projected_field
-    ) / 2  # left-right symmetry
+    if symmetry:
+        projected_field = (
+            npa.flipud(projected_field) + projected_field
+        ) / 2  # left-right symmetry
 
     # interpolate to actual materials
     return projected_field.flatten()
@@ -172,24 +178,26 @@ def mapping(x, eta, beta):
 # Geometry: all is design region, no fixed parts
 geometry = [
     mp.Block(
-        center=design_region.center, size=design_region.size, material=design_variables
-    ),
+        center=design_region.center, size=design_region.size, material=design_region.design_parameters
+    )
     # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
     #
     # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
     # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
     # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
-]
+    for design_region in design_regions
+    ]
 
 # Set-up simulation object
 kpoint = mp.Vector3()
+
 sim = mp.Simulation(
     cell_size=cell_size,
     boundary_layers=pml_layers,
     geometry=geometry,
     sources=source,
     default_material=Air,
-    symmetries=[mp.Mirror(direction=mp.X)],
+    symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
     resolution=resolution,
 )
 
@@ -197,7 +205,7 @@ sim = mp.Simulation(
 far_x = [mp.Vector3(0, 7.5, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, design_region_height / 2 + 1), # 1.5 µm above lens
+        center=mp.Vector3(0, half_total_height + 0.4), # 0.4 µm above lens
         size=mp.Vector3(design_region_width + 2*empty_space, 0), # spans design region
         weight=+1, # field contribution is positive (real)
     )
@@ -214,7 +222,7 @@ opt = mpa.OptimizationProblem(
     simulation=sim,
     objective_functions=[J1],
     objective_arguments=ob_list,
-    design_regions=[design_region],
+    design_regions=design_regions,
     frequencies=frequencies,
     maximum_run_time=2000,
 )
@@ -237,17 +245,27 @@ def f(v, gradient, cur_beta):
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
 
-    f0, dJ_du = opt([mapping(v, eta_i, cur_beta)])  # compute objective and gradient
+    reshaped_v = np.reshape(v, [Nx, num_layers])
+
+    f0, dJ_du = opt([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
+    # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
 
     if gradient.size > 0:
-        gradient[:] = tensor_jacobian_product(mapping, 0)(
-            v, eta_i, cur_beta, np.sum(dJ_du, axis=1)
-        )  # backprop
+        if isinstance(dJ_du[0][0], list) or isinstance(dJ_du[0][0], np.ndarray):
+            gradi = [tensor_jacobian_product(mapping, 0)(
+                reshaped_v[:, i], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
+            ) for i in range(num_layers)] # backprop
+        else:
+            gradi = tensor_jacobian_product(mapping, 0)(
+                reshaped_v, eta_i, cur_beta, np.sum(dJ_du, axis=1)) # backprop
+        print(np.shape(gradi))
+        gradient[:] = np.reshape(gradi, [n])
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
     plt.figure() # Plot current design
     ax = plt.gca()
+    opt.update_design([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)])
     opt.plot2D(
         False,
         ax=ax,
@@ -266,7 +284,7 @@ def f(v, gradient, cur_beta):
 animate = Animate2D(
     fields=None,
     # realtime=True,
-    eps_parameters={'contour': False, 'alpha': 1, 'frequency': 1/1.55},
+    eps_parameters={'contour': False, 'alpha': 1, 'frequency': frequencies[1]},
     plot_sources_flag=False,
     plot_monitors_flag=False,
     plot_boundaries_flag=False,
@@ -276,7 +294,7 @@ animate = Animate2D(
 animateField = Animate2D(
     fields=mp.Ez,
     # realtime=True,
-    eps_parameters={'contour': False, 'alpha': 1, 'frequency': 1/1.55},
+    eps_parameters={'contour': False, 'alpha': 1, 'frequency': frequencies[1]},
     plot_sources_flag=True,
     plot_monitors_flag=True,
     plot_boundaries_flag=True,
@@ -288,24 +306,47 @@ opt.step_funcs=[mp.at_end(animate), mp.at_end(animateField)]
 
 # Method of moving  asymptotes
 algorithm = nlopt.LD_MMA
-n = Nx * Ny  # number of parameters
+n = Nx * num_layers # number of parameters
 
 # Initial guess
-x = np.ones((n,)) * 0.5 # average everywhere
+# x = np.ones((n,)) * 0.5 # average everywhere
+seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
+np.random.seed(seed)
+x = np.random.rand(n)
 # file_path = "x.npy"
 # with open(file_path, 'rb') as f:
 #     x = np.load(f)
+# v = [x for i in range(num_layers)]
+# v = x*num_layers
 
+# Plot first design
+reshaped_x = np.reshape(x, [Nx, num_layers])
+mapped_x = [mapping(reshaped_x[:, i], eta_i, 4) for i in range(num_layers)]
+print(mapped_x)
+opt.update_design(mapped_x)
+plt.figure()
+ax = plt.gca()
+opt.plot2D(
+    False,
+    ax=ax,
+    plot_sources_flag=False,
+    plot_monitors_flag=False,
+    plot_boundaries_flag=False,
+)
+circ = Circle((2, 2), minimum_length / 2)
+ax.add_patch(circ)
+ax.axis("off")
+plt.savefig("./" + scriptName + "/firstDesign.png")
 
 # lower and upper bounds
-lb = np.zeros((Nx * Ny,))
-ub = np.ones((Nx * Ny,))
+lb = np.zeros((n,))
+ub = np.ones((n,))
 
-
-cur_beta = 4
-beta_scale = 2
-num_betas = 6
-update_factor = 12
+# Optimization
+cur_beta = 4 # 4
+beta_scale = 2 # 2
+num_betas = 6 # 6
+update_factor = 12 # 12
 totalIterations = num_betas * update_factor
 ftol = 1e-5
 start = datetime.datetime.now()
@@ -318,7 +359,7 @@ for iters in range(num_betas):
     solver.set_max_objective(lambda a, g: f(a, g, cur_beta))
     solver.set_maxeval(update_factor) # stop when 12 iterations or reached
     solver.set_ftol_rel(ftol) # or when we converged
-    x[:] = solver.optimize(x)
+    x = solver.optimize(x)
     cur_beta = cur_beta * beta_scale
     estimatedSimulationTime = (datetime.datetime.now() - start) * num_betas / (iters + 1)
     print("Current iteration: {}".format(cur_iter[0]) + "; " + str(100 * cur_iter[0] / totalIterations) +
@@ -326,9 +367,11 @@ for iters in range(num_betas):
     sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
                         str(start + estimatedSimulationTime))
     np.save("./" + scriptName + "/x", x)
+    plt.close()
 
 # Plot final design
-opt.update_design([mapping(x, eta_i, cur_beta)])
+reshaped_x = np.reshape(x, [Nx, num_layers])
+opt.update_design([mapping(reshaped_x[:, i], eta_i, cur_beta) for i in range(num_layers)])
 plt.figure()
 ax = plt.gca()
 opt.plot2D(
@@ -344,7 +387,7 @@ ax.axis("off")
 plt.savefig("./" + scriptName + "/finalDesign.png")
 
 # Check intensities in optimal design
-f0, dJ_du = opt([mapping(x, eta_i, cur_beta // 2)], need_gradient=False)
+f0, dJ_du = opt([mapping(reshaped_x[:, i], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
 frequencies = opt.frequencies
 
 intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
@@ -357,7 +400,7 @@ plt.xlabel("Wavelength (microns)")
 plt.ylabel("|Ez|^2 Intensities")
 plt.savefig("./" + scriptName + "/intensities.png")
 
-np.save("./" + scriptName + "/x", x)
+np.save("./" + scriptName + "/v", x)
 
 animate.to_gif(fps=5, filename="./" + scriptName + "/animation.gif")
 animateField.to_gif(fps=5, filename="./" + scriptName + "/animationField.gif")
