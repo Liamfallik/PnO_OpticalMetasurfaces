@@ -9,10 +9,12 @@ import nlopt
 from matplotlib import pyplot as plt
 from matplotlib.patches import Circle
 from scipy import special, signal
+import random
 import datetime
 import requests # send notifications
 
-scriptName = "metalens_1layer_img"
+scriptName = "metalens_epigraph3"
+sendNotifs = True
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -20,10 +22,7 @@ def sendNotification(message):
     method = '/sendMessage'
     url = f"https://api.telegram.org/bot{token}"
     params = {"chat_id": myuserid, "text": message}
-    try:
-        r = requests.get(url + method, params=params)
-    except:
-        print("No internet connection: couldn't send notification...")
+    r = requests.get(url + method, params=params)
 
 def sendPhoto(image_path):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -31,59 +30,14 @@ def sendPhoto(image_path):
     data = {"chat_id": myuserid}
     url = f"https://api.telegram.org/bot{token}" + "/sendPhoto"
     with open(image_path, "rb") as image_file:
-        try:
-            ret = requests.post(url, data=data, files={"photo": image_file})
-            return ret.json()
-        except:
-            print("No internet connection: couldn't send notification...")
+        ret = requests.post(url, data=data, files={"photo": image_file})
+    return ret.json()
 
-
-def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
-    """A linear conic filter, also known as a "Hat" filter in the literature [1].
-
-    Parameters
-    ----------
-    x : array_like (2D)
-        Design parameters
-    radius : float
-        Filter radius (in "meep units")
-    Lx : float
-        Length of design region in X direction (in "meep units")
-    Ly : float
-        Length of design region in Y direction (in "meep units")
-    resolution : int
-        Resolution of the design grid (not the meep simulation resolution)
-
-    Returns
-    -------
-    array_like (2D)
-        Filtered design parameters.
-
-    References
-    ----------
-    [1] Lazarov, B. S., Wang, F., & Sigmund, O. (2016). Length scale and manufacturability in
-    density-based topology optimization. Archive of Applied Mechanics, 86(1-2), 189-218.
-    """
-    x = x.reshape(Nx, Ny)  # Ensure the input is 2D
-
-    xv = np.arange(0, Lx / 2, Lx / Nx) # Lx / Nx instead of 1 / resolution
-    yv = np.arange(0, Ly / 2, Ly / Ny)
-
-    X, Y = np.meshgrid(xv, yv, sparse=True, indexing="ij")
-    h = np.where(
-        X**2 + Y**2 < radius**2, (1 - np.sqrt(abs(X**2 + Y**2)) / radius), 0
-    )
-
-    # Filter the response
-    return mpa.simple_2d_filter(x, h)
-
-
-# checking if the directory demo_folder
-# exist or not.
-if not os.path.exists("./" + scriptName):
+# checking if the directory demo_folder exist or not.
+if not os.path.exists("./" + scriptName + "_img"):
     # if the demo_folder directory is not present
     # then create it.
-    os.makedirs("./" + scriptName)
+    os.makedirs("./" + scriptName + "_img")
 
 mp.verbosity(0) # amount of info printed during simulation
 
@@ -92,24 +46,24 @@ Si = mp.Medium(index=3.4)
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-design_region_width = 4
-design_region_height = 0.3
-empty_space = 2
+design_region_width = 15
+design_region_height = 2
 
 # Boundary conditions
 pml_size = 1.0
-
-resolution = 65
+seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
+np.random.seed(seed)
+resolution = 30
 
 # System size
-Sx = 2 * pml_size + design_region_width + 2 * empty_space
-Sy = 2 * pml_size + design_region_height + 3
+Sx = 2 * pml_size + design_region_width
+Sy = 2 * pml_size + design_region_height + 5
 cell_size = mp.Vector3(Sx, Sy)
 
 # Frequencies
 nf = 3 # Amount of frequencies studied
 # frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
-frequencies = 1./np.linspace(0.55, 0.65, 3)
+frequencies = 1./np.linspace(1.5, 1.6, 3)
 
 # Feature size constraints
 minimum_length = 0.09  # minimum length scale (microns)
@@ -124,17 +78,17 @@ design_region_resolution = int(resolution)
 # Boundary conditions
 pml_layers = [mp.PML(pml_size)]
 
-#source
-fwidth = 0.01
-source_center = [0, -(design_region_height / 2 + 1), 0] # Source 1 µm below lens
-source_size = mp.Vector3(design_region_width + 2*empty_space, 0, 0) # Source covers width of lens
-srcs = [mp.GaussianSource(frequency=fcen, fwidth=fwidth) for fcen in frequencies] # Continuous source
-source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center) for src in srcs]
+fcen = 1 / 1.55 # Middle frequency of source
+width = 0.2 # Relative width of frequency
+fwidth = width * fcen # Absolute width of frequency
+source_center = [0, -(design_region_height / 2 + 1.5), 0] # Source 1.5 µm below lens
+source_size = mp.Vector3(design_region_width, 0, 0) # Source covers width of lens
+src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
+source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
 
 # Amount of variables
 Nx = int(design_region_resolution * design_region_width)
-Ny = 1 # int(design_region_resolution * design_region_height)
-
+Ny = int(design_region_resolution * design_region_height)
 
 design_variables = mp.MaterialGrid(mp.Vector3(Nx, Ny), Air, Si, grid_type="U_MEAN")
 design_region = mpa.DesignRegion(
@@ -150,13 +104,12 @@ design_region = mpa.DesignRegion(
 def mapping(x, eta, beta):
 
     # filter
-    filtered_field = conic_filter2( # remain minimum feature size
+    filtered_field = mpa.conic_filter( # remain minimum feature size
         x,
         filter_radius,
         design_region_width,
         design_region_height,
-        Nx,
-        Ny
+        design_region_resolution,
     )
 
     # projection
@@ -193,21 +146,20 @@ sim = mp.Simulation(
     resolution=resolution,
 )
 
-# Focus point, 7.5 µm beyond centre of lens
-far_x = [mp.Vector3(0, 7.5, 0)]
+# Focus point, 15 µm beyond centre of lens
+far_x = [mp.Vector3(0, 15, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, design_region_height / 2 + 1), # 1.5 µm above lens
-        size=mp.Vector3(design_region_width + 2*empty_space, 0), # spans design region
+        center=mp.Vector3(0, design_region_height / 2 + 1.5), # 1.5 µm above lens
+        size=mp.Vector3(design_region_width, 0), # spans design region
         weight=+1, # field contribution is positive (real)
     )
 ]
 FarFields = mpa.Near2FarFields(sim, NearRegions, far_x) # Far-field object
 ob_list = [FarFields]
 
-
 def J1(FF):
-    return npa.mean(npa.abs(FF[0, :, 2]) ** 2) # only first (only point), mean of all frequencies, and third field (Ez)
+    return -npa.abs(FF[0, :, 2]) ** 2 # only first (only point), vector of frequencies, and third field (Ez)
 
 # Optimization object
 opt = mpa.OptimizationProblem(
@@ -221,28 +173,47 @@ opt = mpa.OptimizationProblem(
 
 plt.figure()
 opt.plot2D(True)
-plt.savefig("./" + scriptName + "/optimizationDesign.png")
+plt.savefig(f"./" + scriptName + "_img/optimizationDesign.png")
 
 # Gradient
 evaluation_history = [] # Keep track of objective function evaluations
 cur_iter = [0] # Iteration
 
+def f(x, grad):
+    t = x[0]  # "dummy" parameter
+    v = x[1:]  # design parameters
+    if grad.size > 0:
+        grad[0] = 1
+        grad[1:] = 0
+    return t
 
-def f(v, gradient, cur_beta):
+def c(result, x, gradient, eta, beta):
     if cur_iter[0] != 0:
         estimatedSimulationTime = (datetime.datetime.now() - start) * totalIterations / cur_iter[0]
-        print("Current iteration: {}".format(cur_iter[0]) + "; " + str(100 * cur_iter[0] / totalIterations) +
-              "% completed ; eta at " + str(start + estimatedSimulationTime))
+        print("Current iteration: {}; current eta: {}, current beta: {}".format(cur_iter[0], eta, beta)
+              + "; " + str(100 * cur_iter[0] / totalIterations) + "% completed ; eta at " +
+              str(start + estimatedSimulationTime))
     else:
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
 
-    f0, dJ_du = opt([mapping(v, eta_i, cur_beta)])  # compute objective and gradient
+    t = x[0]  # dummy parameter
+    v = x[1:]  # design parameters
 
+    f0, dJ_du = opt([mapping(v, eta, beta)])  # compute objective and gradient
+
+    # Backprop the gradients through our mapping function
+    my_grad = np.zeros(dJ_du.shape)
+    for k in range(opt.nf):
+        my_grad[:, k] = tensor_jacobian_product(mapping, 0)(v, eta, beta, dJ_du[:, k])
+        # Note that we now backpropogate the gradients at individual frequencies
+
+    # Assign gradients
     if gradient.size > 0:
-        gradient[:] = tensor_jacobian_product(mapping, 0)(
-            v, eta_i, cur_beta, np.sum(dJ_du, axis=1)
-        )  # backprop
+        gradient[:, 0] = -1  # gradient w.r.t. "t"
+        gradient[:, 1:] = my_grad.T  # gradient w.r.t. each frequency objective
+
+    result[:] = np.real(f0) - t
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
@@ -258,9 +229,9 @@ def f(v, gradient, cur_beta):
     circ = Circle((2, 2), minimum_length / 2)
     ax.add_patch(circ)
     ax.axis("off")
-    plt.savefig("./" + scriptName + "/img_{" + str(cur_iter[0]) + ".png")
+    plt.savefig(f"./" + scriptName + "_img/img" + str(cur_iter[0]) + ".png")
 
-    return np.real(f0)
+    # return np.real(f0)
 
 # Create the animation
 animate = Animate2D(
@@ -291,44 +262,53 @@ algorithm = nlopt.LD_MMA
 n = Nx * Ny  # number of parameters
 
 # Initial guess
-x = np.ones((n,)) * 0.5 # average everywhere
-# file_path = "x.npy"
-# with open(file_path, 'rb') as f:
-#     x = np.load(f)
+# x = np.ones((n,)) * 0.5 # average everywhere
+# x = np.random.rand(n)
+file_path = filedialog.askopenfilename(filetypes=[("Numpy Files", "*.npy")], initialdir='\\wsl.localhost\\Ubuntu-22.04\\home\\willem\\PO_Nano_code')
 
+with open(file_path, 'rb') as f:
+    x = np.load(f)
 
 # lower and upper bounds
 lb = np.zeros((Nx * Ny,))
 ub = np.ones((Nx * Ny,))
 
+# insert dummy parameter bounds and variable
+x = np.insert(x, 0, -1)  # our initial guess for the worst error
+lb = np.insert(lb, 0, -np.inf) # dummy variable can be between - infinity
+ub = np.insert(ub, 0, 0) # and 0 (c needs to be negative, as t > f_i)
 
-cur_beta = 4
+cur_beta = 64 # 4
 beta_scale = 2
-num_betas = 6
-update_factor = 12
+num_betas = 3 # 6
+update_factor = 10 # 12
 totalIterations = num_betas * update_factor
 ftol = 1e-5
 start = datetime.datetime.now()
 print("Opitimization started at " + str(start))
-sendNotification("Opitimization started at " + str(start))
+if sendNotifs:
+    sendNotification("Opitimization started at " + str(start))
 for iters in range(num_betas):
-    solver = nlopt.opt(algorithm, n)
+    solver = nlopt.opt(algorithm, n+1) # add dummy variable
     solver.set_lower_bounds(lb)
     solver.set_upper_bounds(ub)
-    solver.set_max_objective(lambda a, g: f(a, g, cur_beta))
+    solver.set_max_objective(f)
     solver.set_maxeval(update_factor) # stop when 12 iterations or reached
     solver.set_ftol_rel(ftol) # or when we converged
+    solver.add_inequality_mconstraint(
+        lambda r, x, g: c(r, x, g, eta_i, cur_beta), np.array([1e-3] * nf)
+    )
     x[:] = solver.optimize(x)
     cur_beta = cur_beta * beta_scale
     estimatedSimulationTime = (datetime.datetime.now() - start) * num_betas / (iters + 1)
     print("Current iteration: {}".format(cur_iter[0]) + "; " + str(100 * cur_iter[0] / totalIterations) +
           "% completed ; eta at " + str(start + estimatedSimulationTime))
-    sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
+    if sendNotifs:
+        sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
                         str(start + estimatedSimulationTime))
-    np.save("./" + scriptName + "/x", x)
 
 # Plot final design
-opt.update_design([mapping(x, eta_i, cur_beta)])
+opt.update_design([mapping(x[1:], eta_i, cur_beta)])
 plt.figure()
 ax = plt.gca()
 opt.plot2D(
@@ -341,10 +321,25 @@ opt.plot2D(
 circ = Circle((2, 2), minimum_length / 2)
 ax.add_patch(circ)
 ax.axis("off")
-plt.savefig("./" + scriptName + "/finalDesign.png")
+plt.savefig(f"./" + scriptName + "_img/finalDesign.png")
+
+# Plot FOM
+lb = -np.min(evaluation_history, axis=1)
+ub = -np.max(evaluation_history, axis=1)
+mean = -np.mean(evaluation_history, axis=1)
+
+num_iters = lb.size
+
+plt.figure()
+plt.fill_between(np.arange(num_iters), ub, lb, alpha=0.3)
+plt.plot(mean, "o-")
+plt.grid(True)
+plt.xlabel("Iteration")
+plt.ylabel("FOM")
+plt.savefig(f"./" + scriptName + "_img/FOM.png")
 
 # Check intensities in optimal design
-f0, dJ_du = opt([mapping(x, eta_i, cur_beta // 2)], need_gradient=False)
+f0, dJ_du = opt([mapping(x[1:], eta_i, cur_beta // 2)], need_gradient=False)
 frequencies = opt.frequencies
 
 intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
@@ -355,41 +350,18 @@ plt.plot(1 / frequencies, intensities, "-o")
 plt.grid(True)
 plt.xlabel("Wavelength (microns)")
 plt.ylabel("|Ez|^2 Intensities")
-plt.savefig("./" + scriptName + "/intensities.png")
+fileName = f"./" + scriptName + "_img/intensities.png"
+plt.savefig(fileName)
+if sendNotifs:
+    sendPhoto(fileName)
 
-np.save("./" + scriptName + "/x", x)
-
-animate.to_gif(fps=5, filename="./" + scriptName + "/animation.gif")
-animateField.to_gif(fps=5, filename="./" + scriptName + "/animationField.gif")
-
-# Plot fields
-# for freq in frequencies:
-#     opt.sim = mp.Simulation(
-#         cell_size=mp.Vector3(Sx, 20),
-#         boundary_layers=pml_layers,
-#         k_point=kpoint,
-#         geometry=geometry,
-#         sources=source,
-#         force_complex_fields=True,
-#         default_material=Air,
-#         resolution=resolution,
-#     )
-#     src = mp.ContinuousSource(frequency=freq)
-#     source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
-#     opt.sim.change_sources(source)
-#     sim.init_sim()
-#     sim.solve_cw(1e-10, 10000, 10)
-#     # opt.sim.run(until=200)
-#     plt.figure(figsize=(10, 20))
-#     opt.sim.plot2D(fields=mp.Ez)
-#     fileName = f"./" + scriptName + "/fieldAtWavelength" + str(1/freq) + ".png"
-#     plt.savefig(fileName)
-
+animate.to_gif(fps=5, filename=f"./" + scriptName + "_img/animation.gif")
+animateField.to_gif(fps=5, filename=f"./" + scriptName + "_img/animationField.gif")
 
 # Plot fields
 for freq in frequencies:
     opt.sim = mp.Simulation(
-        cell_size=mp.Vector3(Sx, 20),
+        cell_size=mp.Vector3(Sx, 40),
         boundary_layers=pml_layers,
         k_point=kpoint,
         geometry=geometry,
@@ -404,9 +376,15 @@ for freq in frequencies:
     opt.sim.run(until=200)
     plt.figure(figsize=(10, 20))
     opt.sim.plot2D(fields=mp.Ez)
-    fileName = f"./" + scriptName + "/fieldAtWavelength" + str(1/freq) + ".png"
+    fileName = f"./" + scriptName + "_img/fieldAtWavelength" + str(1/freq) + ".png"
     plt.savefig(fileName)
+    if sendNotifs:
+        sendPhoto(fileName)
+
+np.save("x", x)
 
 plt.close()
 
-sendNotification("Simulation finished")
+if sendNotifs:
+    sendNotification("Simulation finished")
+
