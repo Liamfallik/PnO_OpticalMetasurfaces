@@ -13,8 +13,8 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_2layers2_img"
-symmetry = True # Impose symmetry around x = 0 line
+scriptName = "metalens_2layers3_img"
+symmetry = False # Impose symmetry around x = 0 line
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -104,7 +104,7 @@ empty_space = 0 # free space in simulation left and right of layer
 # Boundary conditions
 pml_size = 1.0 # thickness of absorbing boundary layer
 
-resolution = 65 # 65 --> amount of grid points per µm
+resolution = 65 # 65 --> amount of grid points per µm; needs to be > 61 for air and 0.55 µm
 
 # System size
 Sx = 2 * pml_size + design_region_width + 2 * empty_space
@@ -123,14 +123,14 @@ eta_i = (
 eta_e = 0.55  # erosion design field thresholding point (between 0 and 1)
 eta_d = 1 - eta_e  # dilation design field thresholding point (between 0 and 1)
 filter_radius = mpa.get_conic_radius_from_eta_e(minimum_length, eta_e)
-design_region_resolution = int(resolution / 5) # = int(resolution)
+design_region_resolution = int(resolution) # = int(resolution)
 
 # Boundary conditions
 pml_layers = [mp.PML(pml_size)]
 
 # Source
 fcen = frequencies[1]
-fwidth = 0.2
+fwidth = 0.4 # 0.2
 source_center = [0, -(half_total_height + 0.4), 0] # Source 0.4 µm below lens
 source_size = mp.Vector3(design_region_width + 2*empty_space, 0, 0) # Source covers width of lens
 src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
@@ -145,7 +145,7 @@ design_variables = [mp.MaterialGrid(mp.Vector3(Nx), Air, Si, grid_type="U_MEAN")
 design_regions = [mpa.DesignRegion(
     design_variables[i],
     volume=mp.Volume(
-        center=mp.Vector3(y=-half_total_height + (0.5 + i) * design_region_height),
+        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height + i * (design_region_height + spacing)),
         size=mp.Vector3(design_region_width, design_region_height, 0),
     ),
 ) for i in range(num_layers)]
@@ -263,6 +263,9 @@ def f(v, gradient, cur_beta):
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
+    print(v)
+    print(gradient)
+
     plt.figure() # Plot current design
     ax = plt.gca()
     opt.update_design([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)])
@@ -345,10 +348,10 @@ ub = np.ones((n,))
 # Optimization
 cur_beta = 4 # 4
 beta_scale = 2 # 2
-num_betas = 6 # 6
-update_factor = 12 # 12
+num_betas = 7 # 6
+update_factor = 10 # 12
 totalIterations = num_betas * update_factor
-ftol = 1e-5
+ftol = 1e-4 # 1e-5
 start = datetime.datetime.now()
 print("Opitimization started at " + str(start))
 sendNotification("Opitimization started at " + str(start))
@@ -440,13 +443,14 @@ for freq in frequencies:
         default_material=Air,
         resolution=resolution,
     )
-    src = mp.ContinuousSource(frequency=freq, fwidth=fwidth)
+    src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
     source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
     opt.sim.change_sources(source)
 
     opt.sim.run(until=200)
     plt.figure(figsize=(10, 20))
-    opt.sim.plot2D(fields=mp.Ez)
+    opt.sim.plot2D(fields=mp.Ez,
+                   frequency=freq)
     fileName = f"./" + scriptName + "/fieldAtWavelength" + str(1/freq) + ".png"
     plt.savefig(fileName)
 
