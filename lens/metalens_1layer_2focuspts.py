@@ -10,13 +10,14 @@ from matplotlib import pyplot as plt
 from matplotlib.patches import Circle
 from scipy import special, signal
 import datetime
-import requests # send notifications
+import requests  # send notifications
 
-scriptName = "metalens_1layer_img"
+scriptName = "metalens_1layer_2freq_img_test"
+
 
 def sendNotification(message):
-    token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
-    myuserid = 6297309186
+    token = "5930732844:AAEiVTJ9ppOM3RJj3gSxImKxk7vaRTAQu-0"
+    myuserid = 6099565081
     method = '/sendMessage'
     url = f"https://api.telegram.org/bot{token}"
     params = {"chat_id": myuserid, "text": message}
@@ -24,8 +25,8 @@ def sendNotification(message):
 
 
 def sendPhoto(image_path):
-    token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
-    myuserid = 6297309186
+    token = "5930732844:AAEiVTJ9ppOM3RJj3gSxImKxk7vaRTAQu-0"
+    myuserid = 6099565081
     data = {"chat_id": myuserid}
     url = f"https://api.telegram.org/bot{token}" + "/sendPhoto"
     with open(image_path, "rb") as image_file:
@@ -61,26 +62,23 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     """
     x = x.reshape(Nx, Ny)  # Ensure the input is 2D
 
-    xv = np.arange(0, Lx / 2, Lx / Nx) # Lx / Nx instead of 1 / resolution
+    xv = np.arange(0, Lx / 2, Lx / Nx)  # Lx / Nx instead of 1 / resolution
     yv = np.arange(0, Ly / 2, Ly / Ny)
 
     X, Y = np.meshgrid(xv, yv, sparse=True, indexing="ij")
     h = np.where(
-        X**2 + Y**2 < radius**2, (1 - np.sqrt(abs(X**2 + Y**2)) / radius), 0
+        X ** 2 + Y ** 2 < radius ** 2, (1 - np.sqrt(abs(X ** 2 + Y ** 2)) / radius), 0
     )
 
     # Filter the response
     return mpa.simple_2d_filter(x, h)
 
 
-# checking if the directory demo_folder
-# exist or not.
+# checking if the directory exists, else create it
 if not os.path.exists("./" + scriptName):
-    # if the demo_folder directory is not present
-    # then create it.
     os.makedirs("./" + scriptName)
 
-mp.verbosity(0) # amount of info printed during simulation
+mp.verbosity(1)  # amount of info printed during simulation
 
 # Materials
 Si = mp.Medium(index=3.4)
@@ -101,9 +99,9 @@ Sy = 2 * pml_size + design_region_height + 5
 cell_size = mp.Vector3(Sx, Sy)
 
 # Frequencies
-f_green = 1/0.52
-f_blue = 1/0.47
-frequencies = np.array([f_green, f_blue])
+f_red = 1 / 0.65
+f_blue = 1 / 0.47
+frequencies = [f_red, f_blue]
 
 # Feature size constraints
 minimum_length = 0.09  # minimum length scale (microns)
@@ -118,18 +116,19 @@ design_region_resolution = int(resolution)
 # Boundary conditions
 pml_layers = [mp.PML(pml_size)]
 
-fcen = (f_green + f_blue)/2 # Middle frequency of source
-width = 0.2 # Relative width of frequency
-fwidth = width * fcen # Absolute width of frequency
-source_center = [0, -(design_region_height / 2 + 1.5), 0] # Source 1.5 µm below lens
-source_size = mp.Vector3(design_region_width, 0, 0) # Source covers width of lens
-src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
-source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+width = 0.05  # Relative width of frequency
+source_center = [0, -(design_region_height / 2 + 1.5), 0]  # Source 1.5 µm below lens
+source_size = mp.Vector3(design_region_width, 0, 0)  # Source covers width of lens
+sources = [
+    mp.Source(mp.GaussianSource(frequency=f_red, fwidth=width * f_red), component=mp.Ez, size=source_size,
+              center=source_center),
+    mp.Source(mp.GaussianSource(frequency=f_blue, fwidth=width * f_blue), component=mp.Ez, size=source_size,
+              center=source_center)
+]
 
 # Amount of variables
 Nx = int(design_region_resolution * design_region_width)
-Ny = 1 # int(design_region_resolution * design_region_height)
-
+Ny = 1
 
 design_variables = mp.MaterialGrid(mp.Vector3(Nx, Ny), Air, Si, grid_type="U_MEAN")
 design_region = mpa.DesignRegion(
@@ -143,9 +142,8 @@ design_region = mpa.DesignRegion(
 
 # Filter and projection
 def mapping(x, eta, beta):
-
     # filter
-    filtered_field = conic_filter2( # remain minimum feature size
+    filtered_field = conic_filter2(  # remain minimum feature size
         x,
         filter_radius,
         design_region_width,
@@ -155,50 +153,45 @@ def mapping(x, eta, beta):
     )
 
     # projection
-    projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary
+    projected_field = mpa.tanh_projection(filtered_field, beta, eta)  # Make binary
 
-    projected_field = (
-        npa.flipud(projected_field) + projected_field
-    ) / 2  # left-right symmetry
+    # projected_field = (
+    #     npa.flipud(projected_field) + projected_field
+    # ) / 2  # left-right symmetry
 
     # interpolate to actual materials
     return projected_field.flatten()
+
 
 # Geometry: all is design region, no fixed parts
 geometry = [
     mp.Block(
         center=design_region.center, size=design_region.size, material=design_variables
-    ),
-    # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
-    #
-    # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
-    # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
-    # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
+    )
 ]
 
 # Set-up simulation object
-kpoint = mp.Vector3()
 sim = mp.Simulation(
-    cell_size=cell_size,
+    cell_size=mp.Vector3(Sx, Sy + 40),
     boundary_layers=pml_layers,
     geometry=geometry,
-    sources=source,
+    sources=sources,
     default_material=Air,
-    symmetries=[mp.Mirror(direction=mp.X)],
     resolution=resolution,
 )
 
-# Focus points, 15 µm beyond centre of lens, separated by 4 µm
-far_x = [mp.Vector3(-2, 15, 0), mp.Vector3(2, 15, 0)]
-NearRegions = [ # region from which fields at focus point will be calculated
+# Focus points, 30 µm beyond centre of lens, separated by 10 µm
+far_x = [mp.Vector3(-5, 30, 0), mp.Vector3(5, 30, 0)]
+NearRegions = [  # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, design_region_height / 2 + 1.5), # 1.5 µm above lens
-        size=mp.Vector3(design_region_width, 0), # spans design region
-        weight=+1, # field contribution is positive (real)
+        center=mp.Vector3(0, design_region_height / 2 + 1.5),  # 1.5 µm above lens
+        size=mp.Vector3(design_region_width, 0),  # spans design region
+        weight=+1,  # field contribution is positive (real)
     )
 ]
-FarFields = mpa.Near2FarFields(sim, NearRegions, far_x) # Far-field object
+FarFields = mpa.Near2FarFields(sim, NearRegions, far_x)  # Far-field object
 ob_list = [FarFields]
+
 
 def J1(FF):
     """
@@ -215,7 +208,9 @@ def J1(FF):
     -------
     The value of the objective function to maximize
     """
-    return npa.min(npa.abs(FF[:, :, 2] ** 2)) # only first (only point), mean of all frequencies, and third field (Ez)
+    return min(np.abs(FF[0, 0, 2] ** 2),
+               np.abs(FF[1, 1, 2] ** 2))  # only first (only point), mean of all frequencies, and third field (Ez)
+
 
 # Optimization object
 opt = mpa.OptimizationProblem(
@@ -232,8 +227,8 @@ opt.plot2D(True)
 plt.savefig("./" + scriptName + "/optimizationDesign.png")
 
 # Gradient
-evaluation_history = [] # Keep track of objective function evaluations
-cur_iter = [0] # Iteration
+evaluation_history = []  # Keep track of objective function evaluations
+cur_iter = [0]  # Iteration
 
 
 def f(v, gradient, cur_beta):
@@ -252,9 +247,9 @@ def f(v, gradient, cur_beta):
             v, eta_i, cur_beta, np.sum(dJ_du, axis=1)
         )  # backprop
 
-    evaluation_history.append(np.real(f0)) # add objective function evaluation to list
+    evaluation_history.append(np.real(f0))  # add objective function evaluation to list
 
-    plt.figure() # Plot current design
+    # plt.figure() # Plot current design
     ax = plt.gca()
     opt.plot2D(
         False,
@@ -266,71 +261,52 @@ def f(v, gradient, cur_beta):
     circ = Circle((2, 2), minimum_length / 2)
     ax.add_patch(circ)
     ax.axis("off")
-    plt.savefig("./" + scriptName + "/img_{" + str(cur_iter[0]) + ".png")
+    plt.savefig("./" + scriptName + "/img_" + str(cur_iter[0]) + ".png")
 
     return np.real(f0)
 
-# Create the animation
-animate = Animate2D(
-    fields=None,
-    # realtime=True,
-    eps_parameters={'contour': False, 'alpha': 1, 'frequency': 1/1.55},
-    plot_sources_flag=False,
-    plot_monitors_flag=False,
-    plot_boundaries_flag=False,
-    update_epsilon=True,  # required for the geometry to update dynamically
-    nb=False         # True required if running in a Jupyter notebook
-)
-animateField = Animate2D(
-    fields=mp.Ez,
-    # realtime=True,
-    eps_parameters={'contour': False, 'alpha': 1, 'frequency': 1/1.55},
-    plot_sources_flag=True,
-    plot_monitors_flag=True,
-    plot_boundaries_flag=True,
-    update_epsilon=True,  # required for the geometry to update dynamically
-    nb=False         # True required if running in a Jupyter notebook
-)
-# This will trigger the animation at the end of each simulation
-opt.step_funcs=[mp.at_end(animate), mp.at_end(animateField)]
 
 # Method of moving  asymptotes
 algorithm = nlopt.LD_MMA
 n = Nx * Ny  # number of parameters
 
 # Initial guess
-x = np.ones((n,)) * 0.5 # average everywhere
+x = np.ones((n,)) * 0.5  # average everywhere
 
 # lower and upper bounds
 lb = np.zeros((Nx * Ny,))
 ub = np.ones((Nx * Ny,))
-
 
 cur_beta = 4
 beta_scale = 2
 num_betas = 6
 update_factor = 12
 totalIterations = num_betas * update_factor
-ftol = 1e-5
+ftol = 1e-3
 start = datetime.datetime.now()
 print("Opitimization started at " + str(start))
 sendNotification("Opitimization started at " + str(start))
-for iters in range(num_betas):
-    solver = nlopt.opt(algorithm, n)
-    solver.set_lower_bounds(lb)
-    solver.set_upper_bounds(ub)
-    solver.set_max_objective(lambda a, g: f(a, g, cur_beta))
-    solver.set_maxeval(update_factor) # stop when 12 iterations or reached
-    solver.set_ftol_rel(ftol) # or when we converged
-    x[:] = solver.optimize(x)
-    cur_beta = cur_beta * beta_scale
-    estimatedSimulationTime = (datetime.datetime.now() - start) * num_betas / (iters + 1)
-    print("Current iteration: {}".format(cur_iter[0]) + "; " + str(100 * cur_iter[0] / totalIterations) +
-          "% completed ; eta at " + str(start + estimatedSimulationTime))
-    sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
-                        str(start + estimatedSimulationTime))
-    np.save("./" + scriptName + "/x", x)
+# for iters in range(num_betas):
+#     solver = nlopt.opt(algorithm, n)
+#     solver.set_lower_bounds(lb)
+#     solver.set_upper_bounds(ub)
+#     solver.set_max_objective(lambda a, g: f(a, g, cur_beta))
+#     solver.set_maxeval(update_factor)  # stop when 12 iterations are reached
+#     solver.set_ftol_rel(ftol)  # or when we converged
+#     x[:] = solver.optimize(x)
+#     cur_beta = cur_beta * beta_scale
+#     estimatedSimulationTime = (datetime.datetime.now() - start) * num_betas / (iters + 1)
+#     print("Current iteration: {}".format(cur_iter[0]) + "; " + str(100 * cur_iter[0] / totalIterations) +
+#           "% completed ; eta at " + str(start + estimatedSimulationTime))
+#     sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
+#                         str(start + estimatedSimulationTime))
+#     np.save("./" + scriptName + "/x", x)
 
+file_path = "metalens_1layer_2freq_img_3/x.npy"
+with open("metalens_1layer_2freq_img_3/x.npy", 'rb') as f:
+    x = np.load(f)
+
+cur_beta = 256
 # Plot final design
 opt.update_design([mapping(x, eta_i, cur_beta)])
 plt.figure()
@@ -346,24 +322,40 @@ circ = Circle((2, 2), minimum_length / 2)
 ax.add_patch(circ)
 ax.axis("off")
 plt.savefig("./" + scriptName + "/finalDesign.png")
-
+np.save("./" + scriptName + "/x", x)
 # Check intensities in optimal design
 f0, dJ_du = opt([mapping(x, eta_i, cur_beta // 2)], need_gradient=False)
 frequencies = opt.frequencies
 
-intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
+try:
+    intensities = [np.abs(opt.get_objective_arguments()[0][0, 0, 2]) ** 2,
+                   np.abs(opt.get_objective_arguments()[0][1, 1, 2]) ** 2]
 
-# Plot intensities
+    # Plot intensities
+    plt.figure()
+    plt.plot([1 / freq for freq in frequencies], intensities, "-o")
+    plt.grid(True)
+    plt.xlabel("Wavelength (microns)")
+    plt.ylabel("|Ez|^2 Intensities")
+    plt.savefig("./" + scriptName + "/intensities.png")
+except:
+    print('exception in calculating intensities')
+
+# Plot evaluation history
 plt.figure()
-plt.plot(1 / frequencies, intensities, "-o")
+plt.plot([i for i in range(len(evaluation_history))], evaluation_history, "-o")
 plt.grid(True)
-plt.xlabel("Wavelength (microns)")
-plt.ylabel("|Ez|^2 Intensities")
-plt.savefig("./" + scriptName + "/intensities.png")
+plt.xlabel("Iteration")
+plt.ylabel("Minimum field")
+plt.savefig("./" + scriptName + "/objective.png")
 
-np.save("./" + scriptName + "/x", x)
+plt.figure()
+opt.plot2D(fields=mp.Ez,
+           field_parameters={'interpolation': 'spline36', 'cmap': 'RdBu'})
+plt.grid(True)
+plt.xlabel("µm")
+plt.ylabel("µm")
 
-animate.to_gif(fps=5, filename="./" + scriptName + "/animation.gif")
-animateField.to_gif(fps=5, filename="./" + scriptName + "/animationField.gif")
-
+plt.savefig("./" + scriptName + "/fields.png")
+plt.show()
 sendNotification("Simulation finished")
