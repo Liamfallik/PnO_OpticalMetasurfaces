@@ -13,7 +13,7 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_2layers3_img"
+scriptName = "metalens_2layers11_img"
 symmetry = False # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -94,7 +94,7 @@ Si = mp.Medium(index=3.4)
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 2 # amount of layers
+num_layers = 1 # amount of layers
 design_region_width = 4 # width of layer
 design_region_height = 0.3 # height of layer
 spacing = 0.1 # spacing between layers
@@ -130,11 +130,13 @@ pml_layers = [mp.PML(pml_size)]
 
 # Source
 fcen = frequencies[1]
-fwidth = 0.4 # 0.2
+fwidth = 0.03 # 0.2
 source_center = [0, -(half_total_height + 0.4), 0] # Source 0.4 µm below lens
 source_size = mp.Vector3(design_region_width + 2*empty_space, 0, 0) # Source covers width of lens
-src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
-source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+# src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
+# source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+srcs = [mp.GaussianSource(frequency=fcen, fwidth=fwidth) for fcen in frequencies] # Gaussian source
+source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center) for src in srcs]
 
 # Amount of variables
 Nx = int(design_region_resolution * design_region_width)
@@ -215,6 +217,7 @@ ob_list = [FarFields]
 
 
 def J1(FF):
+    print(FF[0, :, 2])
     return npa.mean(npa.abs(FF[0, :, 2]) ** 2) # only first (only point), mean of all frequencies, and third field (Ez)
 
 # Optimization object
@@ -280,6 +283,7 @@ def f(v, gradient, cur_beta):
     ax.add_patch(circ)
     ax.axis("off")
     plt.savefig("./" + scriptName + "/img_{" + str(cur_iter[0]) + ".png")
+    plt.close()
 
     return np.real(f0)
 
@@ -308,14 +312,14 @@ animateField = Animate2D(
 opt.step_funcs=[mp.at_end(animate), mp.at_end(animateField)]
 
 # Method of moving  asymptotes
-algorithm = nlopt.LD_MMA
+algorithm = nlopt.LD_CCSAQ # nlopt.LD_MMA
 n = Nx * num_layers # number of parameters
 
 # Initial guess
 # x = np.ones((n,)) * 0.5 # average everywhere
 seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
 np.random.seed(seed)
-x = np.random.rand(n)
+x = np.random.rand(n) #* 0.6
 # file_path = "x.npy"
 # with open(file_path, 'rb') as f:
 #     x = np.load(f)
@@ -349,7 +353,7 @@ ub = np.ones((n,))
 cur_beta = 4 # 4
 beta_scale = 2 # 2
 num_betas = 7 # 6
-update_factor = 10 # 12
+update_factor = 12 # 12
 totalIterations = num_betas * update_factor
 ftol = 1e-4 # 1e-5
 start = datetime.datetime.now()
@@ -361,7 +365,7 @@ for iters in range(num_betas):
     solver.set_upper_bounds(ub)
     solver.set_max_objective(lambda a, g: f(a, g, cur_beta))
     solver.set_maxeval(update_factor) # stop when 12 iterations or reached
-    solver.set_ftol_rel(ftol) # or when we converged
+    solver.set_ftol_rel(ftol)  # or when we converged
     x = solver.optimize(x)
     cur_beta = cur_beta * beta_scale
     estimatedSimulationTime = (datetime.datetime.now() - start) * num_betas / (iters + 1)
@@ -394,6 +398,7 @@ f0, dJ_du = opt([mapping(reshaped_x[:, i], eta_i, cur_beta // 2) for i in range(
 frequencies = opt.frequencies
 
 intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
+print(opt.get_objective_arguments())
 
 # Plot intensities
 plt.figure()
@@ -443,14 +448,13 @@ for freq in frequencies:
         default_material=Air,
         resolution=resolution,
     )
-    src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
+    src = mp.ContinuousSource(frequency=freq, fwidth=fwidth)
     source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
     opt.sim.change_sources(source)
 
     opt.sim.run(until=200)
     plt.figure(figsize=(10, 20))
-    opt.sim.plot2D(fields=mp.Ez,
-                   frequency=freq)
+    opt.sim.plot2D(fields=mp.Ez)
     fileName = f"./" + scriptName + "/fieldAtWavelength" + str(1/freq) + ".png"
     plt.savefig(fileName)
 

@@ -125,7 +125,7 @@ design_region_resolution = int(resolution)
 # Boundary conditions
 pml_layers = [mp.PML(pml_size)]
 
-#source
+# source
 fcen = frequencies[1]
 fwidth = 0.2
 source_center = [0, -(design_region_height / 2 + 0.4), 0] # Source 0.75 µm below lens
