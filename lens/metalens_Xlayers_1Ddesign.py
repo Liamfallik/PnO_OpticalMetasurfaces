@@ -321,6 +321,9 @@ seed = 240 # make sure starting conditions are random, but always the same. Chan
 np.random.seed(seed)
 x = np.random.rand(n) #* 0.6
 # file_path = "x.npy"
+# with open(file_path, 'rb') as file:
+#     x = np.load(file)
+# file_path = "x.npy"
 # with open(file_path, 'rb') as f:
 #     x = np.load(f)
 # v = [x for i in range(num_layers)]
@@ -364,7 +367,10 @@ for iters in range(num_betas):
     solver.set_lower_bounds(lb)
     solver.set_upper_bounds(ub)
     solver.set_max_objective(lambda a, g: f(a, g, cur_beta))
-    solver.set_maxeval(update_factor) # stop when 12 iterations or reached
+    if iters == 0:
+        solver.set_maxeval(7)
+    else:
+        solver.set_maxeval(update_factor) # stop when 12 iterations or reached
     solver.set_ftol_rel(ftol)  # or when we converged
     x = solver.optimize(x)
     cur_beta = cur_beta * beta_scale
