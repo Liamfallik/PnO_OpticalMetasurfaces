@@ -312,7 +312,7 @@ animateField = Animate2D(
 opt.step_funcs=[mp.at_end(animate), mp.at_end(animateField)]
 
 # Method of moving  asymptotes
-algorithm = nlopt.LD_CCSAQ # nlopt.LD_MMA
+algorithm = nlopt.LD_MMA # nlopt.LD_MMA
 n = Nx * num_layers # number of parameters
 
 # Initial guess
