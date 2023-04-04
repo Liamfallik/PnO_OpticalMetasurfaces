@@ -320,6 +320,8 @@ n = Nx * num_layers # number of parameters
 seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
 np.random.seed(seed)
 x = np.random.rand(n) #* 0.6
+if symmetry:
+    x = (npa.flipud(x) + x) / 2  # left-right symmetry
 # file_path = "x.npy"
 # with open(file_path, 'rb') as file:
 #     x = np.load(file)

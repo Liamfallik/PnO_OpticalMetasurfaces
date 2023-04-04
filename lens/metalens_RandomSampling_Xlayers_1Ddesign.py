@@ -13,7 +13,7 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_img_RandomSampling"
+scriptName = "metalens_img_RandomSampling2"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -146,7 +146,7 @@ Nx = int(design_region_resolution * design_region_width)
 Ny = 1 # int(design_region_resolution * design_region_height)
 
 
-design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in range(num_layers)]
+design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in range(num_layers)] # SiO2
 design_regions = [mpa.DesignRegion(
     design_variables[i],
     volume=mp.Volume(
@@ -206,7 +206,7 @@ sim = mp.Simulation(
     boundary_layers=pml_layers,
     geometry=geometry,
     sources=source,
-    default_material=Air,
+    default_material=Air, # Air
     symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
     resolution=resolution,
 )
@@ -257,8 +257,6 @@ def f(v, gradient, cur_beta):
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
     reshaped_v = np.reshape(v, [Nx, num_layers])
-    print(eta_i)
-    print(cur_beta)
 
     f0, dJ_du = opt([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
     # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
@@ -271,13 +269,11 @@ def f(v, gradient, cur_beta):
         else:
             gradi = tensor_jacobian_product(mapping, 0)(
                 reshaped_v, eta_i, cur_beta, np.sum(dJ_du, axis=1)) # backprop
-        print(np.shape(gradi))
+
         gradient[:] = np.reshape(gradi, [n])
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
-    print(v)
-    print(gradient)
 
     plt.figure() # Plot current design
     ax = plt.gca()
@@ -297,11 +293,6 @@ def f(v, gradient, cur_beta):
 
     return np.real(f0)
 
-
-# store best objective value
-best_f0 = 0
-best_design = None
-best_nr = None
 
 # Initial guess
 seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
@@ -325,6 +316,12 @@ with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
     var_file.write("seed \t%d" % seed + "\n")
 
 num_samples = 10
+# store best objective value
+best_f0 = 0
+best_design = None
+best_nr = None
+f0s = np.zeros([num_samples, nf])
+
 for sample_nr in range(num_samples):
     opt = mpa.OptimizationProblem(
         simulation=sim,
@@ -368,6 +365,8 @@ for sample_nr in range(num_samples):
     ub = np.ones((n,))
 
     x = np.random.rand(n) #* 0.6
+    if symmetry:
+        x = (npa.flipud(x) + x) / 2  # left-right symmetry
     scriptName_i = "sample_" + str(sample_nr)
     # checking if the directory demo_folder
     # exist or not.
@@ -382,7 +381,6 @@ for sample_nr in range(num_samples):
     # Plot first design
     reshaped_x = np.reshape(x, [Nx, num_layers])
     mapped_x = [mapping(reshaped_x[:, i], eta_i, 4) for i in range(num_layers)]
-    print(mapped_x)
     opt.update_design(mapped_x)
     plt.figure()
     ax = plt.gca()
@@ -401,7 +399,7 @@ for sample_nr in range(num_samples):
     # Optimization
     cur_beta = 4 # 4
     beta_scale = 2 # 2
-    num_betas = 8 # 6
+    num_betas = 6 # 6
     update_factor = 10 # 12
     totalIterations = num_betas * update_factor
     ftol = 1e-4 # 1e-5
@@ -456,6 +454,8 @@ for sample_nr in range(num_samples):
     intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
     print(opt.get_objective_arguments())
 
+    f0s[sample_nr, :] = intensities
+
     # Plot intensities
     plt.figure()
     plt.plot(1 / frequencies, intensities, "-o")
@@ -495,7 +495,22 @@ for sample_nr in range(num_samples):
 
 print(best_nr)
 print(best_f0)
-with open("./" + scriptName + "/used_variables.txt", 'ab') as var_file:
+
+lb = np.min(f0s, axis=1)
+ub = np.max(f0s, axis=1)
+mean = np.mean(f0s, axis=1)
+
+plt.figure()
+plt.fill_between(np.arange(num_samples), ub, lb, alpha=0.3)
+plt.plot(mean, "o-")
+plt.grid(True)
+plt.xlabel("Iteration")
+plt.ylabel("FOM")
+fileName = f"./" + scriptName + "/FOM.png"
+plt.savefig(fileName)
+plt.close()
+
+with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
     var_file.write("best_nr \t%d" % best_nr + "\n")
     var_file.write("best_f0 \t%d" % best_f0 + "\n")
     var_file.write("best_design \t%d" % best_design + "\n")
