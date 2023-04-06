@@ -13,7 +13,7 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_img_RandomSampling3"
+scriptName = "metalens_img_RandomSampling4"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -99,7 +99,7 @@ Air = mp.Medium(index=1.0)
 # Dimensions
 num_layers = 1 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = 0.25 # height of layer
+design_region_height = 0.24 # height of layer
 spacing = 0 # spacing between layers
 half_total_height = num_layers * design_region_height / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
@@ -307,19 +307,19 @@ np.random.seed(seed)
 
 
 with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
-    var_file.write("num_layers \t%d" % num_layers + "\n")
-    var_file.write("symmetry \t%d" % symmetry + "\n")
-    var_file.write("design_region_width \t%d" % design_region_width + "\n")
-    var_file.write("design_region_height \t%d" % design_region_height + "\n")
-    var_file.write("design_region_resolution \t%d" % design_region_resolution + "\n")
-    var_file.write("minimum_length \t%d" % minimum_length + "\n")
-    var_file.write("spacing \t%d" % spacing + "\n")
-    var_file.write("empty_space \t%d" % empty_space + "\n")
-    var_file.write("pml_size \t%d" % pml_size + "\n")
-    var_file.write("resolution \t%d" % resolution + "\n")
+    var_file.write("num_layers \t" + str(num_layers) + "\n")
+    var_file.write("symmetry \t" + str(symmetry) + "\n")
+    var_file.write("design_region_width \t" + str(design_region_width) + "\n")
+    var_file.write("design_region_height \t" + str(design_region_height) + "\n")
+    var_file.write("design_region_resolution \t" + str(design_region_resolution) + "\n")
+    var_file.write("minimum_length \t" + str(minimum_length) + "\n")
+    var_file.write("spacing \t" + str(spacing) + "\n")
+    var_file.write("empty_space \t" + str(empty_space) + "\n")
+    var_file.write("pml_size \t" + str(pml_size) + "\n")
+    var_file.write("resolution \t" + str(resolution) + "\n")
     var_file.write("wavelengths \t" + str(1/frequencies) + "\n")
-    var_file.write("fwidth \t%d" % fwidth + "\n")
-    var_file.write("focal_point \t%d" % focal_point + "\n")
+    var_file.write("fwidth \t" + str(fwidth) + "\n")
+    var_file.write("focal_point \t" + str(focal_point) + "\n")
     var_file.write("seed \t%d" % seed + "\n")
 
 num_samples = 10
@@ -489,13 +489,14 @@ for sample_nr in range(num_samples):
         opt.sim = mp.Simulation(
             cell_size=mp.Vector3(Sx, Sy2),
             boundary_layers=pml_layers,
-            k_point=kpoint,
+            # k_point=kpoint,
             geometry=geometry,
             sources=source,
             default_material=Air,
+            symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
             resolution=resolution,
         )
-        src = mp.ContinuousSource(frequency=freq, fwidth=fwidth)
+        src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
         source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
         opt.sim.change_sources(source)
 
@@ -504,13 +505,17 @@ for sample_nr in range(num_samples):
         opt.sim.plot2D(fields=mp.Ez)
         fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(1/freq) + ".png"
         plt.savefig(fileName)
+        try:
+            Efield = opt.get_efield_z()
+            print(Efield)
+            plt.figure()
+            plt.imshow(np.abs(Efield)**2, interpolation="nearest", origin="upper")
+            plt.colorbar()
+            fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityAtWavelength" + str(1 / freq) + ".png"
+            plt.savefig(fileName)
+        except:
+            print("Plotting intensity failed, needs updated meep files")
 
-        Efield = opt.sim.get_efield_z()
-        plt.figure()
-        plt.imshow(Efield**2, interpolation="nearest", origin="upper")
-        plt.colorbar()
-        fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityAtWavelength" + str(1 / freq) + ".png"
-        plt.savefig(fileName)
 
     plt.close()
 
@@ -533,7 +538,7 @@ plt.close()
 
 with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
     var_file.write("best_nr \t%d" % best_nr + "\n")
-    var_file.write("best_f0 \t%d" % best_f0 + "\n")
-    var_file.write("best_design \t%d" % best_design + "\n")
+    var_file.write("best_f0 \t" + str(best_f0) + "\n")
+    var_file.write("best_design \t" + str(best_design) + "\n")
 
 sendNotification("Simulation finished")
