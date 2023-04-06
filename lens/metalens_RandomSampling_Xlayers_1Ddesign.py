@@ -13,7 +13,7 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_img_RandomSampling4"
+scriptName = "metalens_img_RandomSampling_2layers_240-120"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -97,11 +97,11 @@ TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 1 # amount of layers
+num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = 0.24 # height of layer
+design_region_height = [0.24, 0.12] # height of layer
 spacing = 0 # spacing between layers
-half_total_height = num_layers * design_region_height / 2 + (num_layers - 1) * spacing / 2
+half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
 
 # Boundary conditions
@@ -150,8 +150,8 @@ design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEA
 design_regions = [mpa.DesignRegion(
     design_variables[i],
     volume=mp.Volume(
-        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height + i * (design_region_height + spacing)),
-        size=mp.Vector3(design_region_width, design_region_height, 0),
+        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + i * spacing),
+        size=mp.Vector3(design_region_width, design_region_height[i], 0),
     ),
 ) for i in range(num_layers)]
 
@@ -164,7 +164,7 @@ def mapping(x, eta, beta):
         x,
         filter_radius,
         design_region_width,
-        design_region_height,
+        1, # design_region_height,
         Nx,
         Ny
     )
@@ -256,15 +256,15 @@ def f(v, gradient, cur_beta):
     else:
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
-    reshaped_v = np.reshape(v, [Nx, num_layers])
+    reshaped_v = np.reshape(v, [num_layers, Nx])
 
-    f0, dJ_du = opt([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
+    f0, dJ_du = opt([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
     # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
 
     if gradient.size > 0:
         if isinstance(dJ_du[0][0], list) or isinstance(dJ_du[0][0], np.ndarray):
             gradi = [tensor_jacobian_product(mapping, 0)(
-                reshaped_v[:, i], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
+                reshaped_v[i, :], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
             ) for i in range(num_layers)] # backprop
         else:
             gradi = tensor_jacobian_product(mapping, 0)(
@@ -277,7 +277,7 @@ def f(v, gradient, cur_beta):
 
     plt.figure() # Plot current design
     ax = plt.gca()
-    opt.update_design([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)])
+    opt.update_design([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])
     opt.plot2D(
         False,
         ax=ax,
@@ -375,6 +375,7 @@ for sample_nr in range(num_samples):
     if symmetry:
         for i in range(num_layers):
             x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
+    x[Nx:] = np.zeros(n - Nx)
     scriptName_i = "sample_" + str(sample_nr)
     # checking if the directory demo_folder
     # exist or not.
@@ -387,8 +388,8 @@ for sample_nr in range(num_samples):
     cur_iter = [0]  # Iteration
 
     # Plot first design
-    reshaped_x = np.reshape(x, [Nx, num_layers])
-    mapped_x = [mapping(reshaped_x[:, i], eta_i, 4) for i in range(num_layers)]
+    reshaped_x = np.reshape(x, [num_layers, Nx])
+    mapped_x = [mapping(reshaped_x[i, :], eta_i, 4) for i in range(num_layers)]
     opt.update_design(mapped_x)
     plt.figure()
     ax = plt.gca()
@@ -432,8 +433,8 @@ for sample_nr in range(num_samples):
         plt.close()
 
     # Plot final design
-    reshaped_x = np.reshape(x, [Nx, num_layers])
-    opt.update_design([mapping(reshaped_x[:, i], eta_i, cur_beta) for i in range(num_layers)])
+    reshaped_x = np.reshape(x, [num_layers, Nx])
+    opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
     plt.figure()
     ax = plt.gca()
     opt.plot2D(
@@ -449,7 +450,7 @@ for sample_nr in range(num_samples):
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesign.png")
 
     # Check intensities in optimal design
-    f0, dJ_du = opt([mapping(reshaped_x[:, i], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
+    f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
     frequencies = opt.frequencies
 
     if f0 > best_f0:
