@@ -13,7 +13,7 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_2layers_160nm_img"
+scriptName = "metalens_2layers_160nm2_img"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -99,9 +99,9 @@ Air = mp.Medium(index=1.0)
 # Dimensions
 num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = 0.16 # height of layer
+design_region_height = [0.16]*num_layers # height of layer
 spacing = 0 # spacing between layers
-half_total_height = num_layers * design_region_height / 2 + (num_layers - 1) * spacing / 2
+half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
 
 # Boundary conditions
@@ -150,8 +150,8 @@ design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEA
 design_regions = [mpa.DesignRegion(
     design_variables[i],
     volume=mp.Volume(
-        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height + i * (design_region_height + spacing)),
-        size=mp.Vector3(design_region_width, design_region_height, 0),
+        center=mp.Vector3(y=-half_total_height + sum(design_region_height[:i]) + 0.5 * design_region_height[i] + i * spacing),
+        size=mp.Vector3(design_region_width, design_region_height[i], 0),
     ),
 ) for i in range(num_layers)]
 
@@ -164,7 +164,7 @@ def mapping(x, eta, beta):
         x,
         filter_radius,
         design_region_width,
-        design_region_height,
+        1, # design_region_height
         Nx,
         Ny
     )
