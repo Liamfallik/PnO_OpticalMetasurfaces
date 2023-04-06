@@ -480,8 +480,14 @@ for sample_nr in range(num_samples):
 
     # Plot fields
     for freq in frequencies:
+        Sy2 = 20
+        geometry.append(mp.Block(
+            center=mp.Vector3(y=-(Sy2 / 2 + Sy / 2) / 2),
+            size=mp.Vector3(x=Sx, y=(Sy2 / 2 - Sy / 2)),
+            material=SiO2
+        ))
         opt.sim = mp.Simulation(
-            cell_size=mp.Vector3(Sx, 20),
+            cell_size=mp.Vector3(Sx, Sy2),
             boundary_layers=pml_layers,
             k_point=kpoint,
             geometry=geometry,
@@ -494,7 +500,7 @@ for sample_nr in range(num_samples):
         opt.sim.change_sources(source)
 
         opt.sim.run(until=200)
-        plt.figure(figsize=(10, 20))
+        plt.figure(figsize=(Sx, Sy2))
         opt.sim.plot2D(fields=mp.Ez)
         fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(1/freq) + ".png"
         plt.savefig(fileName)
@@ -504,6 +510,7 @@ for sample_nr in range(num_samples):
         plt.imshow(Efield**2, interpolation="nearest", origin="upper")
         plt.colorbar()
         fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityAtWavelength" + str(1 / freq) + ".png"
+        plt.savefig(fileName)
 
     plt.close()
 

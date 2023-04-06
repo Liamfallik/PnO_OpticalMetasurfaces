@@ -13,8 +13,8 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_2layers13_img"
-symmetry = False # Impose symmetry around x = 0 line
+scriptName = "metalens_2layers14_img"
+symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -97,7 +97,7 @@ TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 2 # amount of layers
+num_layers = 1 # amount of layers
 design_region_width = 10 # width of layer
 design_region_height = 0.25 # height of layer
 spacing = 0 # spacing between layers
