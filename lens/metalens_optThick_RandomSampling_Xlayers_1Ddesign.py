@@ -13,7 +13,7 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_img_RandomSampling_2layers_240-120"
+scriptName = "metalens_img_optThick"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -97,11 +97,13 @@ TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 2 # amount of layers
+num_layers = 1 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.24, 0.12] # height of layer
+design_region_height = [0.25]*num_layers # height of layer
+max_design_region_height = 0.5 # max height
 spacing = 0 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
+max_half_total_height = num_layers * max_design_region_height / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
 
 # Boundary conditions
@@ -111,7 +113,7 @@ resolution = 50 # 50 --> amount of grid points per µm; needs to be > 49 for TiO
 
 # System size
 Sx = 2 * pml_size + design_region_width + 2 * empty_space
-Sy = 2 * pml_size + half_total_height * 2 + 2
+Sy = 2 * pml_size + max_half_total_height * 2 + 2
 cell_size = mp.Vector3(Sx, Sy)
 
 # Frequencies
@@ -134,7 +136,7 @@ pml_layers = [mp.PML(pml_size)]
 # Source
 fcen = frequencies[1]
 fwidth = 0.03 # 0.2
-source_center = [0, -(half_total_height + 0.4), 0] # Source 0.4 µm below lens
+source_center = [0, -(max_half_total_height + 0.4), 0] # Source 0.4 µm below lens
 source_size = mp.Vector3(design_region_width + 2*empty_space, 0, 0) # Source covers width of lens
 # src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
 # source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
@@ -155,31 +157,6 @@ design_regions = [mpa.DesignRegion(
     ),
 ) for i in range(num_layers)]
 
-
-# Filter and projection
-def mapping(x, eta, beta):
-
-    # filter
-    filtered_field = conic_filter2( # remain minimum feature size
-        x,
-        filter_radius,
-        design_region_width,
-        1, # design_region_height,
-        Nx,
-        Ny
-    )
-
-    # projection
-    projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary
-
-    if symmetry:
-        projected_field = (
-            npa.flipud(projected_field) + projected_field
-        ) / 2  # left-right symmetry
-
-    # interpolate to actual materials
-    return projected_field.flatten()
-
 # Geometry: all is design region, no fixed parts
 geometry = [
     mp.Block(
@@ -191,25 +168,25 @@ geometry = [
     # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
     # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
     for design_region in design_regions
-    ]
+]
 geometry.append(mp.Block(
-        center = mp.Vector3(y=-(half_total_height + Sy/2) / 2),
-        size=mp.Vector3(x = Sx, y = (Sy/2 - half_total_height)),
-        material=SiO2
-    ))
+    center=mp.Vector3(y=-(half_total_height + Sy / 2) / 2),
+    size=mp.Vector3(x=Sx, y=(Sy / 2 - half_total_height)),
+    material=SiO2
+))
 
 # Set-up simulation object
 kpoint = mp.Vector3()
-
 sim = mp.Simulation(
     cell_size=cell_size,
     boundary_layers=pml_layers,
     geometry=geometry,
     sources=source,
-    default_material=Air, # Air
+    default_material=Air,  # Air
     symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
     resolution=resolution,
 )
+
 
 # Focus point, 7.5 µm beyond centre of lens
 focal_point = 6
@@ -243,9 +220,87 @@ plt.figure()
 opt.plot2D(True)
 plt.savefig("./" + scriptName + "/optimizationDesign.png")
 
+
+# give new simulation object depending on the new layer thickness
+def give_opt(thicknesses):
+    design_region_height = thicknesses
+    half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
+    design_regions = [mpa.DesignRegion(
+        design_variables[i],
+        volume=mp.Volume(
+            center=mp.Vector3(
+                y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + i * spacing),
+                size=mp.Vector3(design_region_width, design_region_height[i], 0),
+            ),
+        ) for i in range(num_layers)]
+
+    # Geometry
+    geometry = [
+        mp.Block(
+            center=design_region.center, size=design_region.size, material=design_region.design_parameters
+        )
+        # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
+        #
+        # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
+        # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
+        # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
+        for design_region in design_regions
+        ]
+    geometry.append(mp.Block(
+            center = mp.Vector3(y=-(half_total_height + Sy/2) / 2),
+            size=mp.Vector3(x = Sx, y = (Sy/2 - half_total_height)),
+            material=SiO2
+        ))
+
+    # Set-up simulation object
+    sim = mp.Simulation(
+        cell_size=cell_size,
+        boundary_layers=pml_layers,
+        geometry=geometry,
+        sources=source,
+        default_material=Air, # Air
+        symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
+        resolution=resolution,
+    )
+
+    # opt = mpa.OptimizationProblem(
+    #     simulation=sim,
+    #     objective_functions=[J1],
+    #     objective_arguments=ob_list,
+    #     design_regions=design_regions,
+    #     frequencies=frequencies,
+    #     maximum_run_time=2000,
+    # )
+    return sim
+
+
 # Gradient
 evaluation_history = [] # Keep track of objective function evaluations
 cur_iter = [0] # Iteration
+
+
+# Filter and projection
+def mapping(x, eta, beta):
+    # filter
+    filtered_field = conic_filter2( # remain minimum feature size
+        x[1:],
+        filter_radius,
+        design_region_width,
+        x[0],
+        Nx,
+        Ny
+    )
+
+    # projection
+    projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary
+
+    if symmetry:
+        projected_field = (
+            npa.flipud(projected_field) + projected_field
+        ) / 2  # left-right symmetry
+
+    # interpolate to actual materials
+    return projected_field.flatten()
 
 
 def f(v, gradient, cur_beta):
@@ -256,28 +311,68 @@ def f(v, gradient, cur_beta):
     else:
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
-    reshaped_v = np.reshape(v, [num_layers, Nx])
+    reshaped_v = np.reshape(v, [Nx+1, num_layers])
 
-    f0, dJ_du = opt([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
+    thicknesses = [reshaped_v[0, i] for i in range(num_layers)]
+    # sim = give_opt(thicknesses)
+    # opt = mpa.OptimizationProblem(
+    #     simulation=sim,
+    #     objective_functions=[J1],
+    #     objective_arguments=ob_list,
+    #     design_regions=design_regions,
+    #     frequencies=frequencies,
+    #     maximum_run_time=2000,
+    # )
+    mapped_v = [mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)]
+    opt.update_design(mapped_v)
+    print(2)
+    # print(opt)
+    f0, dJ_du = opt([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
     # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
+    print(3)
+    # determine gradient of thickness with finite difference method
+    fd_gradis = np.zeros(num_layers)
+    for i in range(num_layers):
+        thicknesses[i] += 1 / resolution
+        # opt = give_opt(thicknesses)
+        print(4)
+        # STILL NEED TO CHANGE THIS TO FORWARD RUN ONLY!!!!!!!!!
+        f02, dJ_du2 = opt([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)]) # compute objective for change in thickness
+        print(5)
+        fd_gradis[i] = (f02 - f0) * resolution
+        thicknesses[i] -= 1 / resolution
 
+    # sim = give_opt(thicknesses)
+    # opt = mpa.OptimizationProblem(
+    #     simulation=sim,
+    #     objective_functions=[J1],
+    #     objective_arguments=ob_list,
+    #     design_regions=design_regions,
+    #     frequencies=frequencies,
+    #     maximum_run_time=2000,
+    # )
+
+    print(6)
     if gradient.size > 0:
         if isinstance(dJ_du[0][0], list) or isinstance(dJ_du[0][0], np.ndarray):
             gradi = [tensor_jacobian_product(mapping, 0)(
-                reshaped_v[i, :], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
+                reshaped_v[:, i], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
             ) for i in range(num_layers)] # backprop
         else:
             gradi = tensor_jacobian_product(mapping, 0)(
-                reshaped_v, eta_i, cur_beta, np.sum(dJ_du, axis=1)) # backprop
+                reshaped_v[:, :], eta_i, cur_beta, np.sum(dJ_du, axis=1)) # backprop
 
-        gradient[:] = np.reshape(gradi, [n])
+        reshaped_gradi = np.reshape(gradi, [n])
+        for i in range(num_layers):
+            gradient[Nx*i] = fd_gradis[i]
+            gradient[1 + i*(Nx+1): (i+1)*(Nx+1)] = reshaped_gradi[i*Nx:(i+1)*Nx]
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
 
     plt.figure() # Plot current design
     ax = plt.gca()
-    opt.update_design([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])
+    opt.update_design([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)])
     opt.plot2D(
         False,
         ax=ax,
@@ -289,14 +384,7 @@ def f(v, gradient, cur_beta):
     ax.add_patch(circ)
     ax.axis("off")
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/img_{" + str(cur_iter[0]) + ".png")
-
-    # Efield = opt.sim.get_epsilon()
-    # plt.figure()
-    # plt.plot(Efield ** 2)
-
     plt.close()
-
-
 
     return np.real(f0)
 
@@ -307,19 +395,19 @@ np.random.seed(seed)
 
 
 with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
-    var_file.write("num_layers \t" + str(num_layers) + "\n")
-    var_file.write("symmetry \t" + str(symmetry) + "\n")
-    var_file.write("design_region_width \t" + str(design_region_width) + "\n")
+    var_file.write("num_layers \t%d" % num_layers + "\n")
+    var_file.write("symmetry \t%d" % symmetry + "\n")
+    var_file.write("design_region_width \t%d" % design_region_width + "\n")
     var_file.write("design_region_height \t" + str(design_region_height) + "\n")
-    var_file.write("design_region_resolution \t" + str(design_region_resolution) + "\n")
-    var_file.write("minimum_length \t" + str(minimum_length) + "\n")
-    var_file.write("spacing \t" + str(spacing) + "\n")
-    var_file.write("empty_space \t" + str(empty_space) + "\n")
-    var_file.write("pml_size \t" + str(pml_size) + "\n")
-    var_file.write("resolution \t" + str(resolution) + "\n")
+    var_file.write("design_region_resolution \t%d" % design_region_resolution + "\n")
+    var_file.write("minimum_length \t%d" % minimum_length + "\n")
+    var_file.write("spacing \t%d" % spacing + "\n")
+    var_file.write("empty_space \t%d" % empty_space + "\n")
+    var_file.write("pml_size \t%d" % pml_size + "\n")
+    var_file.write("resolution \t%d" % resolution + "\n")
     var_file.write("wavelengths \t" + str(1/frequencies) + "\n")
-    var_file.write("fwidth \t" + str(fwidth) + "\n")
-    var_file.write("focal_point \t" + str(focal_point) + "\n")
+    var_file.write("fwidth \t%d" % fwidth + "\n")
+    var_file.write("focal_point \t%d" % focal_point + "\n")
     var_file.write("seed \t%d" % seed + "\n")
 
 num_samples = 10
@@ -363,19 +451,21 @@ for sample_nr in range(num_samples):
     # This will trigger the animation at the end of each simulation
     opt.step_funcs = [mp.at_end(animate), mp.at_end(animateField)]
 
-    # Method of moving  asymptotes
+    # Method of moving asymptotes
     algorithm = nlopt.LD_MMA  # nlopt.LD_MMA
-    n = Nx * num_layers  # number of parameters
+    n = (Nx + 1) * num_layers  # number of parameters
 
     # lower and upper bounds
     lb = np.zeros((n,))
     ub = np.ones((n,))
+    ub[0] = max_design_region_height
 
     x = np.random.rand(n) #* 0.6
+    for i in range(num_layers):
+        x[i*(Nx+1)] = design_region_height[i]
     if symmetry:
         for i in range(num_layers):
-            x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
-    x[Nx:] = np.zeros(n - Nx)
+            x[1 + (Nx+1)*i : (Nx+1)*(i+1)] = (npa.flipud(x[1 + (Nx+1)*i : (Nx+1)*(i+1)]) + x[1 + (Nx+1)*i : (Nx+1)*(i+1)]) / 2  # left-right symmetry
     scriptName_i = "sample_" + str(sample_nr)
     # checking if the directory demo_folder
     # exist or not.
@@ -388,8 +478,8 @@ for sample_nr in range(num_samples):
     cur_iter = [0]  # Iteration
 
     # Plot first design
-    reshaped_x = np.reshape(x, [num_layers, Nx])
-    mapped_x = [mapping(reshaped_x[i, :], eta_i, 4) for i in range(num_layers)]
+    reshaped_x = np.reshape(x, [Nx+1, num_layers])
+    mapped_x = [mapping(reshaped_x[:, i], eta_i, 4) for i in range(num_layers)]
     opt.update_design(mapped_x)
     plt.figure()
     ax = plt.gca()
@@ -433,8 +523,8 @@ for sample_nr in range(num_samples):
         plt.close()
 
     # Plot final design
-    reshaped_x = np.reshape(x, [num_layers, Nx])
-    opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
+    reshaped_x = np.reshape(x, [Nx+1, num_layers])
+    opt.update_design([mapping(reshaped_x[:, i], eta_i, cur_beta) for i in range(num_layers)])
     plt.figure()
     ax = plt.gca()
     opt.plot2D(
@@ -450,7 +540,7 @@ for sample_nr in range(num_samples):
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesign.png")
 
     # Check intensities in optimal design
-    f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
+    f0, dJ_du = opt([mapping(reshaped_x[:, i], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
     frequencies = opt.frequencies
 
     if f0 > best_f0:
@@ -481,42 +571,24 @@ for sample_nr in range(num_samples):
 
     # Plot fields
     for freq in frequencies:
-        Sy2 = 20
-        geometry.append(mp.Block(
-            center=mp.Vector3(y=-(Sy2 / 2 + Sy / 2) / 2),
-            size=mp.Vector3(x=Sx, y=(Sy2 / 2 - Sy / 2)),
-            material=SiO2
-        ))
         opt.sim = mp.Simulation(
-            cell_size=mp.Vector3(Sx, Sy2),
+            cell_size=mp.Vector3(Sx, 20),
             boundary_layers=pml_layers,
-            # k_point=kpoint,
+            k_point=kpoint,
             geometry=geometry,
             sources=source,
             default_material=Air,
-            symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
             resolution=resolution,
         )
-        src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
+        src = mp.ContinuousSource(frequency=freq, fwidth=fwidth)
         source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
         opt.sim.change_sources(source)
 
         opt.sim.run(until=200)
-        plt.figure(figsize=(Sx, Sy2))
+        plt.figure(figsize=(10, 20))
         opt.sim.plot2D(fields=mp.Ez)
         fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(1/freq) + ".png"
         plt.savefig(fileName)
-        try:
-            Efield = opt.get_efield_z()
-            print(Efield)
-            plt.figure()
-            plt.imshow(np.abs(Efield)**2, interpolation="nearest", origin="upper")
-            plt.colorbar()
-            fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityAtWavelength" + str(1 / freq) + ".png"
-            plt.savefig(fileName)
-        except:
-            print("Plotting intensity failed, needs updated meep files")
-
 
     plt.close()
 
@@ -539,7 +611,7 @@ plt.close()
 
 with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
     var_file.write("best_nr \t%d" % best_nr + "\n")
-    var_file.write("best_f0 \t" + str(best_f0) + "\n")
+    var_file.write("best_f0 \t%d" % best_f0 + "\n")
     var_file.write("best_design \t" + str(best_design) + "\n")
 
 sendNotification("Simulation finished")

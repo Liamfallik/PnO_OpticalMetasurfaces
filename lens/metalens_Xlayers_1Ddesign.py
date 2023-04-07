@@ -13,8 +13,8 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_2layers11_img"
-symmetry = False # Impose symmetry around x = 0 line
+scriptName = "metalens_2layers_160nm2_img"
+symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -91,20 +91,23 @@ mp.verbosity(0) # amount of info printed during simulation
 
 # Materials
 Si = mp.Medium(index=3.4)
+SiO2 = mp.Medium(index=1.45)
+NbOx = mp.Medium(index=2.5)
+TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 1 # amount of layers
-design_region_width = 4 # width of layer
-design_region_height = 0.3 # height of layer
-spacing = 0.1 # spacing between layers
-half_total_height = num_layers * design_region_height / 2 + (num_layers - 1) * spacing / 2
+num_layers = 2 # amount of layers
+design_region_width = 10 # width of layer
+design_region_height = [0.16]*num_layers # height of layer
+spacing = 0 # spacing between layers
+half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
 
 # Boundary conditions
 pml_size = 1.0 # thickness of absorbing boundary layer
 
-resolution = 65 # 65 --> amount of grid points per µm; needs to be > 61 for air and 0.55 µm
+resolution = 50 # 50 --> amount of grid points per µm; needs to be > 49 for TiOx and 0.55 µm
 
 # System size
 Sx = 2 * pml_size + design_region_width + 2 * empty_space
@@ -143,12 +146,12 @@ Nx = int(design_region_resolution * design_region_width)
 Ny = 1 # int(design_region_resolution * design_region_height)
 
 
-design_variables = [mp.MaterialGrid(mp.Vector3(Nx), Air, Si, grid_type="U_MEAN") for i in range(num_layers)]
+design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in range(num_layers)]
 design_regions = [mpa.DesignRegion(
     design_variables[i],
     volume=mp.Volume(
-        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height + i * (design_region_height + spacing)),
-        size=mp.Vector3(design_region_width, design_region_height, 0),
+        center=mp.Vector3(y=-half_total_height + sum(design_region_height[:i]) + 0.5 * design_region_height[i] + i * spacing),
+        size=mp.Vector3(design_region_width, design_region_height[i], 0),
     ),
 ) for i in range(num_layers)]
 
@@ -161,7 +164,7 @@ def mapping(x, eta, beta):
         x,
         filter_radius,
         design_region_width,
-        design_region_height,
+        1, # design_region_height
         Nx,
         Ny
     )
@@ -189,6 +192,11 @@ geometry = [
     # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
     for design_region in design_regions
     ]
+geometry.append(mp.Block(
+        center = mp.Vector3(y=-(half_total_height + Sy/2) / 2),
+        size=mp.Vector3(x = Sx, y = (Sy/2 - half_total_height)),
+        material=SiO2
+    ))
 
 # Set-up simulation object
 kpoint = mp.Vector3()
@@ -203,8 +211,9 @@ sim = mp.Simulation(
     resolution=resolution,
 )
 
-# Focus point, 7.5 µm beyond centre of lens
-far_x = [mp.Vector3(0, 7.5, 0)]
+# Focus point, 6 µm beyond centre of lens
+focus_point = 6
+far_x = [mp.Vector3(0, focus_point, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
         center=mp.Vector3(0, half_total_height + 0.4), # 0.4 µm above lens
@@ -248,30 +257,33 @@ def f(v, gradient, cur_beta):
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
 
-    reshaped_v = np.reshape(v, [Nx, num_layers])
-
-    f0, dJ_du = opt([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
+    reshaped_v = np.reshape(v, [num_layers, Nx])
+    mapped_v = [mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)]
+    print("x: " + str(sum((reshaped_v[0] - reshaped_v[1]) ** 2)))
+    print("mapped x: " + str(sum((mapped_v[0] - mapped_v[1])**2)))
+    f0, dJ_du = opt([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
     # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
 
+    print(np.shape(dJ_du))
     if gradient.size > 0:
         if isinstance(dJ_du[0][0], list) or isinstance(dJ_du[0][0], np.ndarray):
             gradi = [tensor_jacobian_product(mapping, 0)(
-                reshaped_v[:, i], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
+                reshaped_v[i, :], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
             ) for i in range(num_layers)] # backprop
         else:
             gradi = tensor_jacobian_product(mapping, 0)(
                 reshaped_v, eta_i, cur_beta, np.sum(dJ_du, axis=1)) # backprop
         print(np.shape(gradi))
-        gradient[:] = np.reshape(gradi, [n])
+        gradient[:] = np.reshape(gradi, [n]) # + np.random.rand(n)*0.5
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
-    print(v)
-    print(gradient)
+    # print(v)
+    # print(gradient)
 
     plt.figure() # Plot current design
     ax = plt.gca()
-    opt.update_design([mapping(reshaped_v[:, i], eta_i, cur_beta) for i in range(num_layers)])
+    opt.update_design([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])
     opt.plot2D(
         False,
         ax=ax,
@@ -317,11 +329,15 @@ n = Nx * num_layers # number of parameters
 
 # Initial guess
 # x = np.ones((n,)) * 0.5 # average everywhere
-seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
+seed = 240 # 240 make sure starting conditions are random, but always the same. Change seed to change starting conditions
 np.random.seed(seed)
 x = np.random.rand(n) #* 0.6
-if symmetry:
-    x = (npa.flipud(x) + x) / 2  # left-right symmetry
+for i in range(num_layers):
+    if symmetry:
+        x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
+x[Nx:] = np.zeros(n-Nx)
+
+print("start x:" + str(sum((x[:Nx] - x[Nx:])**2)))
 # file_path = "x.npy"
 # with open(file_path, 'rb') as file:
 #     x = np.load(file)
@@ -332,9 +348,10 @@ if symmetry:
 # v = x*num_layers
 
 # Plot first design
-reshaped_x = np.reshape(x, [Nx, num_layers])
-mapped_x = [mapping(reshaped_x[:, i], eta_i, 4) for i in range(num_layers)]
-print(mapped_x)
+reshaped_x = np.reshape(x, [num_layers, Nx])
+print(reshaped_x)
+mapped_x = [mapping(reshaped_x[i, :], eta_i, 4) for i in range(num_layers)]
+# print(mapped_x)
 opt.update_design(mapped_x)
 plt.figure()
 ax = plt.gca()
@@ -358,7 +375,7 @@ ub = np.ones((n,))
 cur_beta = 4 # 4
 beta_scale = 2 # 2
 num_betas = 7 # 6
-update_factor = 12 # 12
+update_factor = 10 # 12
 totalIterations = num_betas * update_factor
 ftol = 1e-4 # 1e-5
 start = datetime.datetime.now()
@@ -369,10 +386,7 @@ for iters in range(num_betas):
     solver.set_lower_bounds(lb)
     solver.set_upper_bounds(ub)
     solver.set_max_objective(lambda a, g: f(a, g, cur_beta))
-    if iters == 0:
-        solver.set_maxeval(7)
-    else:
-        solver.set_maxeval(update_factor) # stop when 12 iterations or reached
+    solver.set_maxeval(update_factor) # stop when 12 iterations are reached
     solver.set_ftol_rel(ftol)  # or when we converged
     x = solver.optimize(x)
     cur_beta = cur_beta * beta_scale
@@ -385,8 +399,8 @@ for iters in range(num_betas):
     plt.close()
 
 # Plot final design
-reshaped_x = np.reshape(x, [Nx, num_layers])
-opt.update_design([mapping(reshaped_x[:, i], eta_i, cur_beta) for i in range(num_layers)])
+reshaped_x = np.reshape(x, [num_layers, Nx])
+opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
 plt.figure()
 ax = plt.gca()
 opt.plot2D(
@@ -402,7 +416,7 @@ ax.axis("off")
 plt.savefig("./" + scriptName + "/finalDesign.png")
 
 # Check intensities in optimal design
-f0, dJ_du = opt([mapping(reshaped_x[:, i], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
+f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
 frequencies = opt.frequencies
 
 intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
