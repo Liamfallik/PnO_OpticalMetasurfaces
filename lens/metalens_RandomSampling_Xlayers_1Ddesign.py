@@ -410,8 +410,8 @@ for sample_nr in range(num_samples):
     # Optimization
     cur_beta = 4 # 4
     beta_scale = 2 # 2
-    num_betas = 6 # 6
-    update_factor = 12 # 12
+    num_betas = 7 # 6
+    update_factor = 10 # 12
     totalIterations = num_betas * update_factor
     ftol = 1e-4 # 1e-5
     start = datetime.datetime.now()
