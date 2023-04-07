@@ -545,4 +545,7 @@ with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
     var_file.write("run_time \t" + str(datetime.datetime.now() - start0) + "\n")
     var_file.write("best_design \t" + str(best_design) + "\n")
 
-sendNotification("Simulation finished")
+
+
+sendNotification("Simulation finished; best FOM: " + str(best_f0))
+sendPhoto(fileName)

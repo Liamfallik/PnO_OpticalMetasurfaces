@@ -185,7 +185,7 @@ def mapping(x, eta, beta):
     return projected_field.flatten()
 
 # Geometry: all is design region, no fixed parts
-'''
+
 geometry = [
     mp.Block(
         center=design_region.center, size=design_region.size, material=design_region.design_parameters
@@ -197,19 +197,19 @@ geometry = [
     # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
     for design_region in design_regions
     ]
-geometry.append(mp.Block(
-        center = mp.Vector3(y=-(half_total_height + Sy/2) / 2),
-        size=mp.Vector3(x = Sx, y = (Sy/2 - half_total_height)),
-        material=SiO2
-    ))
-'''
+# geometry.append(mp.Block(
+#         center = mp.Vector3(y=-(half_total_height + Sy/2) / 2),
+#         size=mp.Vector3(x = Sx, y = (Sy/2 - half_total_height)),
+#         material=SiO2
+#     ))
+
 block_height = 12
 
 # Geometry: all is design region, no fixed parts
-geometry = [
-    mp.Block(
-        center=design_region.center, size=design_region.size, material=design_variables
-    ) for design_region in design_regions]
+# geometry = [
+#     mp.Block(
+#         center=design_region.center, size=design_region.size, material=design_variables
+#     ) for design_region in design_regions]
     
 geometry.append(mp.Block(center=mp.Vector3(y=(block_height + sum(design_region_height)/2)/2), size=mp.Vector3(Sx, block_height), material=SiO2))
 
@@ -254,9 +254,9 @@ opt = mpa.OptimizationProblem(
 )
 
 plt.figure()
-print("here")
+print("here1")
 opt.plot2D(True)
-print("here")
+print("here2")
 plt.savefig("./" + scriptName + "/optimizationDesign.png")
 
 # Gradient
@@ -345,7 +345,7 @@ best_nr = None
 f0s = np.zeros([num_samples, len(frequencies)])
 
 for sample_nr in range(num_samples):
-	print("heres")
+	print("here3")
 	opt = mpa.OptimizationProblem(
 		simulation=sim,
 		objective_functions=[J1], 
