@@ -13,7 +13,8 @@ import datetime
 import requests # send notifications
 import random
 
-scriptName = "metalens_img_RandomSampling_2layers_240-120"
+start0 = datetime.datetime.now()
+scriptName = "metalens_img_RandomSampling_2layers_2x160nm"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -99,7 +100,7 @@ Air = mp.Medium(index=1.0)
 # Dimensions
 num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.24, 0.12] # height of layer
+design_region_height = [0.16, 0.16] # height of layer
 spacing = 0 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
@@ -169,13 +170,13 @@ def mapping(x, eta, beta):
         Ny
     )
 
-    # projection
-    projected_field = mpa.tanh_projection(filtered_field, beta, eta) # Make binary
-
     if symmetry:
-        projected_field = (
-            npa.flipud(projected_field) + projected_field
+        filtered_field = (
+            npa.flipud(filtered_field) + filtered_field
         ) / 2  # left-right symmetry
+
+    # projection
+    projected_field = mpa.tanh_projection(filtered_field, beta, eta)  # Make binary
 
     # interpolate to actual materials
     return projected_field.flatten()
@@ -371,11 +372,12 @@ for sample_nr in range(num_samples):
     lb = np.zeros((n,))
     ub = np.ones((n,))
 
-    x = np.random.rand(n) #* 0.6
+    x = np.random.rand(n) * 0.6
     if symmetry:
         for i in range(num_layers):
             x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
     x[Nx:] = np.zeros(n - Nx)
+    # x = np.zeros(n)
     scriptName_i = "sample_" + str(sample_nr)
     # checking if the directory demo_folder
     # exist or not.
@@ -408,8 +410,8 @@ for sample_nr in range(num_samples):
     # Optimization
     cur_beta = 4 # 4
     beta_scale = 2 # 2
-    num_betas = 7 # 6
-    update_factor = 10 # 12
+    num_betas = 6 # 6
+    update_factor = 12 # 12
     totalIterations = num_betas * update_factor
     ftol = 1e-4 # 1e-5
     start = datetime.datetime.now()
@@ -540,6 +542,7 @@ plt.close()
 with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
     var_file.write("best_nr \t%d" % best_nr + "\n")
     var_file.write("best_f0 \t" + str(best_f0) + "\n")
+    var_file.write("run_time \t" + str(datetime.datetime.now() - start0) + "\n")
     var_file.write("best_design \t" + str(best_design) + "\n")
 
 sendNotification("Simulation finished")
