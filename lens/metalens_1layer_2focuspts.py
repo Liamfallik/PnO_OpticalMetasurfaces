@@ -12,7 +12,7 @@ from scipy import special, signal
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_1layer_2freq_img_test"
+scriptName = "metalens_1layer_2freq_img_test_3_fields_plot"
 
 
 def sendNotification(message):
@@ -78,24 +78,27 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
 if not os.path.exists("./" + scriptName):
     os.makedirs("./" + scriptName)
 
-mp.verbosity(1)  # amount of info printed during simulation
+mp.verbosity(0)  # amount of info printed during simulation
 
 # Materials
 Si = mp.Medium(index=3.4)
+SiO2 = mp.Medium(index=1.45)
+NbOx = mp.Medium(index=2.5)
+TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-design_region_width = 15
-design_region_height = 2
+design_region_width = 10
+design_region_height = 0.25
 
 # Boundary conditions
 pml_size = 1.0
 
-resolution = 30
+resolution = 60
 
 # System size
 Sx = 2 * pml_size + design_region_width
-Sy = 2 * pml_size + design_region_height + 5
+Sy = 2 * pml_size + design_region_height + 2
 cell_size = mp.Vector3(Sx, Sy)
 
 # Frequencies
@@ -117,12 +120,12 @@ design_region_resolution = int(resolution)
 pml_layers = [mp.PML(pml_size)]
 
 width = 0.05  # Relative width of frequency
-source_center = [0, -(design_region_height / 2 + 1.5), 0]  # Source 1.5 µm below lens
+source_center = [0, -(design_region_height / 2 + 0.4), 0]  # Source 1.5 µm below lens
 source_size = mp.Vector3(design_region_width, 0, 0)  # Source covers width of lens
 sources = [
-    mp.Source(mp.GaussianSource(frequency=f_red, fwidth=width * f_red), component=mp.Ez, size=source_size,
+    mp.Source(mp.GaussianSource(frequency=f_red, fwidth=width), component=mp.Ez, size=source_size,
               center=source_center),
-    mp.Source(mp.GaussianSource(frequency=f_blue, fwidth=width * f_blue), component=mp.Ez, size=source_size,
+    mp.Source(mp.GaussianSource(frequency=f_blue, fwidth=width), component=mp.Ez, size=source_size,
               center=source_center)
 ]
 
@@ -130,7 +133,7 @@ sources = [
 Nx = int(design_region_resolution * design_region_width)
 Ny = 1
 
-design_variables = mp.MaterialGrid(mp.Vector3(Nx, Ny), Air, Si, grid_type="U_MEAN")
+design_variables = mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN")
 design_region = mpa.DesignRegion(
     design_variables,
     volume=mp.Volume(
@@ -163,16 +166,21 @@ def mapping(x, eta, beta):
     return projected_field.flatten()
 
 
+block_height = 12
+
 # Geometry: all is design region, no fixed parts
 geometry = [
     mp.Block(
         center=design_region.center, size=design_region.size, material=design_variables
+    ),
+    mp.Block(
+        center=mp.Vector3(y=(block_height + design_region_height/2)/2), size=mp.Vector3(Sx, block_height), material=SiO2
     )
 ]
 
 # Set-up simulation object
 sim = mp.Simulation(
-    cell_size=mp.Vector3(Sx, Sy + 40),
+    cell_size=cell_size,
     boundary_layers=pml_layers,
     geometry=geometry,
     sources=sources,
@@ -181,10 +189,10 @@ sim = mp.Simulation(
 )
 
 # Focus points, 30 µm beyond centre of lens, separated by 10 µm
-far_x = [mp.Vector3(-5, 30, 0), mp.Vector3(5, 30, 0)]
+far_x = [mp.Vector3(-3, 7.5, 0), mp.Vector3(3, 7.5, 0)]
 NearRegions = [  # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, design_region_height / 2 + 1.5),  # 1.5 µm above lens
+        center=mp.Vector3(0, design_region_height / 2 + 0.4),  # 1.5 µm above lens
         size=mp.Vector3(design_region_width, 0),  # spans design region
         weight=+1,  # field contribution is positive (real)
     )
@@ -208,9 +216,11 @@ def J1(FF):
     -------
     The value of the objective function to maximize
     """
-    return min(np.abs(FF[0, 0, 2] ** 2),
-               np.abs(FF[1, 1, 2] ** 2))  # only first (only point), mean of all frequencies, and third field (Ez)
-
+    return (np.abs(FF[0, 0, 2]) ** 2) * (np.abs(FF[1, 1, 2]) ** 2)
+        #/ (np.abs(FF[1, 0, 2]) ** 2) / (np.abs(FF[0, 1, 2]) ** 2)
+        #min(np.abs(FF[0, 0, 2] ** 2), np.abs(FF[1, 1, 2] ** 2))
+               # np.abs(FF[1, 1, 2] ** 2))  # only first (only point), mean of all frequencies, and third field (Ez)
+               #)
 
 # Optimization object
 opt = mpa.OptimizationProblem(
@@ -271,7 +281,7 @@ algorithm = nlopt.LD_MMA
 n = Nx * Ny  # number of parameters
 
 # Initial guess
-x = np.ones((n,)) * 0.5  # average everywhere
+x = np.random.rand(n)  # average everywhere
 
 # lower and upper bounds
 lb = np.zeros((Nx * Ny,))
@@ -280,12 +290,12 @@ ub = np.ones((Nx * Ny,))
 cur_beta = 4
 beta_scale = 2
 num_betas = 6
-update_factor = 12
+update_factor = 10
 totalIterations = num_betas * update_factor
-ftol = 1e-3
+ftol = 1e-4
 start = datetime.datetime.now()
 print("Opitimization started at " + str(start))
-sendNotification("Opitimization started at " + str(start))
+# sendNotification("Opitimization started at " + str(start))
 # for iters in range(num_betas):
 #     solver = nlopt.opt(algorithm, n)
 #     solver.set_lower_bounds(lb)
@@ -298,14 +308,17 @@ sendNotification("Opitimization started at " + str(start))
 #     estimatedSimulationTime = (datetime.datetime.now() - start) * num_betas / (iters + 1)
 #     print("Current iteration: {}".format(cur_iter[0]) + "; " + str(100 * cur_iter[0] / totalIterations) +
 #           "% completed ; eta at " + str(start + estimatedSimulationTime))
-#     sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
-#                         str(start + estimatedSimulationTime))
+#     # sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
+#     #                     str(start + estimatedSimulationTime))
 #     np.save("./" + scriptName + "/x", x)
+#     plt.close()
 
-file_path = "metalens_1layer_2freq_img_3/x.npy"
-with open("metalens_1layer_2freq_img_3/x.npy", 'rb') as f:
+file_path = "metalens_1layer_2freq_img_test_3/x.npy"
+with open("metalens_1layer_2freq_img_test_3_fields/x.npy", 'rb') as f:
     x = np.load(f)
 
+print(x)
+opt.update_design([x, 1, 1])
 cur_beta = 256
 # Plot final design
 opt.update_design([mapping(x, eta_i, cur_beta)])
@@ -338,8 +351,36 @@ try:
     plt.xlabel("Wavelength (microns)")
     plt.ylabel("|Ez|^2 Intensities")
     plt.savefig("./" + scriptName + "/intensities.png")
-except:
+except Exception as err:
     print('exception in calculating intensities')
+    print(err)
+
+# Plot fields
+try:
+    for freq in frequencies:
+        print(freq)
+        opt.sim = mp.Simulation(
+            cell_size=mp.Vector3(Sx, 20),
+            boundary_layers=pml_layers,
+            k_point=mp.Vector3(),
+            geometry=geometry,
+            sources=sources,
+            default_material=Air,
+            resolution=resolution,
+        )
+        src = mp.ContinuousSource(frequency=freq, fwidth=0.05)
+        source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+        opt.sim.change_sources(source)
+
+        opt.sim.run(until=200)
+        plt.figure(figsize=(10, 20))
+        opt.sim.plot2D(fields=mp.Ez)
+        fileName = f"./" + scriptName + "/fieldAtFreq" + str(freq) + ".png"
+        plt.savefig(fileName)
+        plt.close()
+except Exception as err:
+    print("error plotting fields")
+    print(err)
 
 # Plot evaluation history
 plt.figure()
@@ -358,4 +399,4 @@ plt.ylabel("µm")
 
 plt.savefig("./" + scriptName + "/fields.png")
 plt.show()
-sendNotification("Simulation finished")
+# sendNotification("Simulation finished")
