@@ -377,7 +377,7 @@ for sample_nr in range(num_samples):
 
     phase0 = (focal_point * frequencies[1]) % 1 + random.random()# (1-0.9*0.5**num_layers)
     for j in range(Nx//2, Nx):
-        phase = -(phase0 - np.sqrt(focal_point**2 + ((j - Nx//2) / design_region_resolution)**2) * frequencies[1]) % 1
+        phase = (phase0 - np.sqrt(focal_point**2 + ((j - Nx//2) / design_region_resolution)**2) * frequencies[1]) % 1
         phase_step = int(phase * 2**num_layers)
         for i in range(num_layers):
             if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0:
@@ -386,7 +386,7 @@ for sample_nr in range(num_samples):
                 reshaped_x[i, j] = 0.5 if symmetry else 0.25
 
 
-    x = np.reshape(reshaped_x, [n]) + 0.25 * np.random.rand(n)
+    x = np.reshape(reshaped_x, [n]) + 0.5 * (-0.5 + np.random.rand(n))
 
     if symmetry:
         for i in range(num_layers):
