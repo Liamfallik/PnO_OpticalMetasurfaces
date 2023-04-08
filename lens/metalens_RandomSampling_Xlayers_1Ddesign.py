@@ -14,7 +14,7 @@ import requests # send notifications
 import random
 
 start0 = datetime.datetime.now()
-scriptName = "metalens_img_RandomSampling_2layers_2x160nm"
+scriptName = "metalens_img_RandomSampling_2layers_240-120nm_analytStart"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -100,7 +100,7 @@ Air = mp.Medium(index=1.0)
 # Dimensions
 num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.16, 0.16] # height of layer
+design_region_height = [0.24, 0.12] # height of layer
 spacing = 0 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
@@ -372,12 +372,27 @@ for sample_nr in range(num_samples):
     lb = np.zeros((n,))
     ub = np.ones((n,))
 
-    x = np.random.rand(n) * 0.6
+    # x = np.random.rand(n) * 0.6
+    reshaped_x = np.zeros([num_layers, Nx])
+
+    phase0 = (focal_point * frequencies[1]) % 1 + random.random()# (1-0.9*0.5**num_layers)
+    for j in range(Nx//2, Nx):
+        phase = -(phase0 - np.sqrt(focal_point**2 + ((j - Nx//2) / design_region_resolution)**2) * frequencies[1]) % 1
+        phase_step = int(phase * 2**num_layers)
+        for i in range(num_layers):
+            if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0:
+                reshaped_x[i, j] = 1.5 if symmetry else 0.75
+            else:
+                reshaped_x[i, j] = 0.5 if symmetry else 0.25
+
+
+    x = np.reshape(reshaped_x, [n]) + 0.25 * np.random.rand(n)
+
     if symmetry:
         for i in range(num_layers):
             x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
-    x[Nx:] = np.zeros(n - Nx)
-    # x = np.zeros(n)
+    # x[Nx:] = np.zeros(n - Nx)
+
     scriptName_i = "sample_" + str(sample_nr)
     # checking if the directory demo_folder
     # exist or not.
@@ -410,7 +425,7 @@ for sample_nr in range(num_samples):
     # Optimization
     cur_beta = 4 # 4
     beta_scale = 2 # 2
-    num_betas = 7 # 6
+    num_betas = 7*0 # 6
     update_factor = 10 # 12
     totalIterations = num_betas * update_factor
     ftol = 1e-4 # 1e-5
