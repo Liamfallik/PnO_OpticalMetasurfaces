@@ -372,7 +372,7 @@ for sample_nr in range(num_samples):
     lb = np.zeros((n,))
     ub = np.ones((n,))
 
-    # x = np.random.rand(n) * 0.6
+    x = np.random.rand(n) * 0.6
     # reshaped_x = np.zeros([num_layers, Nx])
 
     # phase0 = (focal_point * frequencies[1]) % 1 + random.random()# (1-0.9*0.5**num_layers)
@@ -387,14 +387,14 @@ for sample_nr in range(num_samples):
 
 
     # x = np.reshape(reshaped_x, [n])# + 0.5 * (-0.5 + np.random.rand(n))
-    file_path = "x.npy"
-    with open(file_path, 'rb') as file:
-        x = np.load(file)
+    # file_path = "x.npy"
+    # with open(file_path, 'rb') as file:
+    #     x = np.load(file)
 
-    # if symmetry:
-    #     for i in range(num_layers):
-    #         x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
-    # x[Nx:] = np.zeros(n - Nx)
+    if symmetry:
+        for i in range(num_layers):
+            x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
+    x[Nx:] = np.zeros(n - Nx)
 
     scriptName_i = "sample_" + str(sample_nr)
     # checking if the directory demo_folder
