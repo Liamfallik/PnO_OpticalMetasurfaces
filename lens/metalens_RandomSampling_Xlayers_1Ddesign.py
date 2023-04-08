@@ -14,7 +14,7 @@ import requests # send notifications
 import random
 
 start0 = datetime.datetime.now()
-scriptName = "metalens_img_RandomSampling_2layers_240-120nm_analytStart"
+scriptName = "metalens_img_RandomSampling_test"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -98,9 +98,9 @@ TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 2 # amount of layers
+num_layers = 4 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.24, 0.12] # height of layer
+design_region_height = [0.096]*4 # height of layer
 spacing = 0 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
@@ -373,24 +373,27 @@ for sample_nr in range(num_samples):
     ub = np.ones((n,))
 
     # x = np.random.rand(n) * 0.6
-    reshaped_x = np.zeros([num_layers, Nx])
+    # reshaped_x = np.zeros([num_layers, Nx])
 
-    phase0 = (focal_point * frequencies[1]) % 1 + random.random()# (1-0.9*0.5**num_layers)
-    for j in range(Nx//2, Nx):
-        phase = (phase0 - np.sqrt(focal_point**2 + ((j - Nx//2) / design_region_resolution)**2) * frequencies[1]) % 1
-        phase_step = int(phase * 2**num_layers)
-        for i in range(num_layers):
-            if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0:
-                reshaped_x[i, j] = 1.5 if symmetry else 0.75
-            else:
-                reshaped_x[i, j] = 0.5 if symmetry else 0.25
+    # phase0 = (focal_point * frequencies[1]) % 1 + random.random()# (1-0.9*0.5**num_layers)
+    # for j in range(Nx//2, Nx):
+    #     phase = (phase0 - np.sqrt(focal_point**2 + ((j - Nx//2) / design_region_resolution)**2) * frequencies[1]) % 1
+    #     phase_step = int(phase * 2**num_layers)
+    #     for i in range(num_layers):
+    #         if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0:
+    #             reshaped_x[i, j] = 1.5 if symmetry else 0.75
+    #         else:
+    #             reshaped_x[i, j] = 0.5 if symmetry else 0.25
 
 
-    x = np.reshape(reshaped_x, [n]) + 0.5 * (-0.5 + np.random.rand(n))
+    # x = np.reshape(reshaped_x, [n])# + 0.5 * (-0.5 + np.random.rand(n))
+    file_path = "x.npy"
+    with open(file_path, 'rb') as file:
+        x = np.load(file)
 
-    if symmetry:
-        for i in range(num_layers):
-            x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
+    # if symmetry:
+    #     for i in range(num_layers):
+    #         x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
     # x[Nx:] = np.zeros(n - Nx)
 
     scriptName_i = "sample_" + str(sample_nr)
@@ -423,7 +426,7 @@ for sample_nr in range(num_samples):
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
 
     # Optimization
-    cur_beta = 4 # 4
+    cur_beta = 4*2**6 # 4
     beta_scale = 2 # 2
     num_betas = 7*0 # 6
     update_factor = 10 # 12
@@ -495,15 +498,75 @@ for sample_nr in range(num_samples):
     animate.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animation.gif")
     animateField.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animationField.gif")
 
+    Sy2 = 20
+    geometry.append(mp.Block(
+        center=mp.Vector3(y=-(Sy2 / 2 + Sy / 2) / 2),
+        size=mp.Vector3(x=Sx, y=(Sy2 / 2 - Sy / 2)),
+        material=SiO2
+    ))
+
+    # simulate intensities
+    sim = mp.Simulation(resolution=resolution,
+                        cell_size=mp.Vector3(Sx, Sy2),
+                        boundary_layers=pml_layers,
+                        geometry=geometry,
+                        k_point=kpoint,
+                        sources=source,
+                        symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
+
+    near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
+                                           size=mp.Vector3(x=design_region_width)) for freq in frequencies]
+    near_fields = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
+                                     size=mp.Vector3(x=Sx, y=Sy2)) for freq in frequencies]
+    # near_fields_near = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=half_total_height + 0.4),
+    #                                       size=mp.Vector3(x=design_region_width))
+
+    sim.run(until_after_sources=100)
+
+    print("now")
+    focussed_field = [sim.get_dft_array(field, mp.Ez, 0) for field in near_fields_focus]
+    scattered_field = [sim.get_dft_array(field, mp.Ez, 0) for field in near_fields]
+    # near_field = sim.get_dft_array(near_fields, mp.Ez, 0)
+
+    # np.save("./" + scriptName + "/" + scriptName_i + "/x", near_field)
+
+    focussed_amplitude = [np.abs(field) ** 2 for field in focussed_field]
+    scattered_amplitude = [np.abs(field) ** 2 for field in scattered_field]
+    # print(scattered_amplitude)
+    # print(sim.get_array_metadata(dft_cell=near_fields))
+    # print(np.shape(sim.get_array_metadata(dft_cell=near_fields)))
+    [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus[1])
+    [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields[1])
+
+
+    for i in range(nf):
+        # plot colormesh
+        plt.figure(dpi=150)
+        plt.pcolormesh(xj, yj, np.rot90(scattered_amplitude[i]), cmap='inferno', shading='gouraud', vmin=0,
+                       vmax=scattered_amplitude[i].max())
+        plt.gca().set_aspect('equal')
+        plt.xlabel('x (μm)')
+        plt.ylabel('y (μm)')
+        # ensure that the height of the colobar matches that of the plot
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+        divider = make_axes_locatable(plt.gca())
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(cax=cax)
+        plt.tight_layout()
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(1 / frequencies[i]) + ".png"
+        plt.savefig(fileName)
+
+        # plot intensity around focal point
+        plt.figure()
+        plt.plot(xi, focussed_amplitude[i], 'bo-')
+        plt.xlabel("x (μm)")
+        plt.ylabel("field amplitude")
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(1 / frequencies[i]) + ".png"
+        plt.savefig(fileName)
 
     # Plot fields
     for freq in frequencies:
-        Sy2 = 20
-        geometry.append(mp.Block(
-            center=mp.Vector3(y=-(Sy2 / 2 + Sy / 2) / 2),
-            size=mp.Vector3(x=Sx, y=(Sy2 / 2 - Sy / 2)),
-            material=SiO2
-        ))
         opt.sim = mp.Simulation(
             cell_size=mp.Vector3(Sx, Sy2),
             boundary_layers=pml_layers,
