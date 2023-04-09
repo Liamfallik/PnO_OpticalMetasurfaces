@@ -542,7 +542,7 @@ for sample_nr in range(num_samples):
     for i in range(nf):
         # plot colormesh
         plt.figure(dpi=150)
-        plt.pcolormesh(xj, yj, np.rot90(scattered_amplitude[i]), cmap='inferno', shading='gouraud', vmin=0,
+        plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude[i]))), cmap='inferno', shading='gouraud', vmin=0,
                        vmax=scattered_amplitude[i].max())
         plt.gca().set_aspect('equal')
         plt.xlabel('x (μm)')
