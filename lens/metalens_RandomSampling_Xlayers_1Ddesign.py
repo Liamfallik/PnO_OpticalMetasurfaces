@@ -330,6 +330,7 @@ best_design = None
 best_nr = None
 f0s = np.zeros([num_samples, nf])
 
+start0 = datetime.datetime.now()
 for sample_nr in range(num_samples):
     opt = mpa.OptimizationProblem(
         simulation=sim,
@@ -426,9 +427,9 @@ for sample_nr in range(num_samples):
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
 
     # Optimization
-    cur_beta = 4*2**6 # 4
+    cur_beta = 4 # 4
     beta_scale = 2 # 2
-    num_betas = 7*0 # 6
+    num_betas = 7 # 6
     update_factor = 10 # 12
     totalIterations = num_betas * update_factor
     ftol = 1e-4 # 1e-5
@@ -505,66 +506,6 @@ for sample_nr in range(num_samples):
         material=SiO2
     ))
 
-    # simulate intensities
-    sim = mp.Simulation(resolution=resolution,
-                        cell_size=mp.Vector3(Sx, Sy2),
-                        boundary_layers=pml_layers,
-                        geometry=geometry,
-                        k_point=kpoint,
-                        sources=source,
-                        symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
-
-    near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
-                                           size=mp.Vector3(x=design_region_width)) for freq in frequencies]
-    near_fields = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
-                                     size=mp.Vector3(x=Sx, y=Sy2)) for freq in frequencies]
-    # near_fields_near = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=half_total_height + 0.4),
-    #                                       size=mp.Vector3(x=design_region_width))
-
-    sim.run(until_after_sources=100)
-
-    print("now")
-    focussed_field = [sim.get_dft_array(field, mp.Ez, 0) for field in near_fields_focus]
-    scattered_field = [sim.get_dft_array(field, mp.Ez, 0) for field in near_fields]
-    # near_field = sim.get_dft_array(near_fields, mp.Ez, 0)
-
-    # np.save("./" + scriptName + "/" + scriptName_i + "/x", near_field)
-
-    focussed_amplitude = [np.abs(field) ** 2 for field in focussed_field]
-    scattered_amplitude = [np.abs(field) ** 2 for field in scattered_field]
-    # print(scattered_amplitude)
-    # print(sim.get_array_metadata(dft_cell=near_fields))
-    # print(np.shape(sim.get_array_metadata(dft_cell=near_fields)))
-    [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus[1])
-    [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields[1])
-
-
-    for i in range(nf):
-        # plot colormesh
-        plt.figure(dpi=150)
-        plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude[i]))), cmap='inferno', shading='gouraud', vmin=0,
-                       vmax=scattered_amplitude[i].max())
-        plt.gca().set_aspect('equal')
-        plt.xlabel('x (μm)')
-        plt.ylabel('y (μm)')
-        # ensure that the height of the colobar matches that of the plot
-        from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-        divider = make_axes_locatable(plt.gca())
-        cax = divider.append_axes("right", size="5%", pad=0.05)
-        plt.colorbar(cax=cax)
-        plt.tight_layout()
-        fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(1 / frequencies[i]) + ".png"
-        plt.savefig(fileName)
-
-        # plot intensity around focal point
-        plt.figure()
-        plt.plot(xi, focussed_amplitude[i], 'bo-')
-        plt.xlabel("x (μm)")
-        plt.ylabel("field amplitude")
-        fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(1 / frequencies[i]) + ".png"
-        plt.savefig(fileName)
-
     # Plot fields
     for freq in frequencies:
         opt.sim = mp.Simulation(
@@ -600,6 +541,10 @@ for sample_nr in range(num_samples):
 
     plt.close()
 
+    estimatedSimulationTime = (datetime.datetime.now() - start0) * num_samples / (sample_nr + 1)
+    sendNotification("Opitimization " + str(int(10000 * (sample_nr + 1) / num_samples)/100) + " % completed; eta at " +
+                     str(start0 + estimatedSimulationTime))
+
 print(best_nr)
 print(best_f0)
 
@@ -624,6 +569,76 @@ with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
     var_file.write("best_design \t" + str(best_design) + "\n")
 
 
+# simulate intensities on best design
+scriptName_i = "sample_" + str(best_nr)
+opt.update_design([mapping(best_design[i, :], eta_i, cur_beta) for i in range(num_layers)])
+
+Sy2 = 20
+geometry.append(mp.Block(
+    center=mp.Vector3(y=-(Sy2 / 2 + Sy / 2) / 2),
+    size=mp.Vector3(x=Sx, y=(Sy2 / 2 - Sy / 2)),
+    material=SiO2
+))
+
+# simulate intensities
+sim = mp.Simulation(resolution=resolution,
+                    cell_size=mp.Vector3(Sx, Sy2),
+                    boundary_layers=pml_layers,
+                    geometry=geometry,
+                    k_point=kpoint,
+                    sources=source,
+                    symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
+
+near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
+                                        size=mp.Vector3(x=design_region_width)) for freq in frequencies]
+near_fields = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
+                                  size=mp.Vector3(x=Sx, y=Sy2)) for freq in frequencies]
+# near_fields_near = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=half_total_height + 0.4),
+#                                       size=mp.Vector3(x=design_region_width))
+
+sim.run(until_after_sources=100)
+
+focussed_field = [sim.get_dft_array(field, mp.Ez, 0) for field in near_fields_focus]
+scattered_field = [sim.get_dft_array(field, mp.Ez, 0) for field in near_fields]
+# near_field = sim.get_dft_array(near_fields, mp.Ez, 0)
+
+focussed_amplitude = [np.abs(field) ** 2 for field in focussed_field]
+scattered_amplitude = [np.abs(field) ** 2 for field in scattered_field]
+# print(scattered_amplitude)
+# print(sim.get_array_metadata(dft_cell=near_fields))
+# print(np.shape(sim.get_array_metadata(dft_cell=near_fields)))
+[xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus[1])
+[xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields[1])
+
+for i in range(nf):
+    # plot colormesh
+    plt.figure(dpi=150)
+    plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude[i]))), cmap='inferno', shading='gouraud',
+                   vmin=0,
+                   vmax=scattered_amplitude[i].max())
+    plt.gca().set_aspect('equal')
+    plt.xlabel('x (μm)')
+    plt.ylabel('y (μm)')
+    # ensure that the height of the colobar matches that of the plot
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    divider = make_axes_locatable(plt.gca())
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(cax=cax)
+    plt.tight_layout()
+    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(1 / frequencies[i]) + ".png"
+    plt.savefig(fileName)
+
+    # plot intensity around focal point
+    plt.figure()
+    plt.plot(xi, focussed_amplitude[i], 'bo-')
+    plt.xlabel("x (μm)")
+    plt.ylabel("field amplitude")
+    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(
+        1 / frequencies[i]) + ".png"
+    plt.savefig(fileName)
+
+np.save("./" + scriptName + "/" + scriptName_i + "/intensity_at_focus", focussed_amplitude)
 
 sendNotification("Simulation finished; best FOM: " + str(best_f0))
 sendPhoto(fileName)
