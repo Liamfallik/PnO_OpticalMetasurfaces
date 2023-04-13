@@ -9,33 +9,14 @@ import nlopt
 from matplotlib import pyplot as plt
 from matplotlib.patches import Circle
 from mpl_toolkits.mplot3d import Axes3D
-import mlab
 
-from scipy import special, signal
+
+# from scipy import special, signal
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_1layer_3d_img"
-
-
-def sendNotification(message):
-    token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
-    myuserid = 6297309186
-    method = '/sendMessage'
-    url = f"https://api.telegram.org/bot{token}"
-    params = {"chat_id": myuserid, "text": message}
-    r = requests.get(url + method, params=params)
-
-
-def sendPhoto(image_path):
-    token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
-    myuserid = 6297309186
-    data = {"chat_id": myuserid}
-    url = f"https://api.telegram.org/bot{token}" + "/sendPhoto"
-    with open(image_path, "rb") as image_file:
-        ret = requests.post(url, data=data, files={"photo": image_file})
-    return ret.json()
-
+scriptName = "metalens_1layer_3d_img_p"
+#mp.divide_parallel_processes(2)
 
 def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     """A linear conic filter, also known as a "Hat" filter in the literature [1].
@@ -74,6 +55,7 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     )
 
     # Filter the response
+
     return mpa.simple_2d_filter(x, h)
 
 
@@ -84,24 +66,24 @@ if not os.path.exists("./" + scriptName):
     # then create it.
     os.makedirs("./" + scriptName)
 
-mp.verbosity(0)  # amount of info printed during simulation
+mp.verbosity(1)  # amount of info printed during simulation
 
 # Materials
 Si = mp.Medium(index=3.4)
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-design_region_width = 15
-design_region_height = 2
+design_region_width = 10
+design_region_height = 0.5
 
 # Boundary conditions
 pml_size = 1.0
 
-resolution = 30
+resolution = 55
 
 # System size
 Sx = 2 * pml_size + design_region_width
-Sz = 2 * pml_size + design_region_height + 5
+Sz = 2 * pml_size + design_region_height + 1
 cell_size = mp.Vector3(Sx, Sx, Sz)
 
 # Frequencies
@@ -125,7 +107,7 @@ pml_layers = [mp.PML(pml_size)]
 fcen = 1 / 1.55  # Middle frequency of source
 width = 0.2  # Relative width of frequency
 fwidth = width * fcen  # Absolute width of frequency
-source_center = [0, 0, -(design_region_height / 2 + 1.5)]  # Source 1.5 µm below lens
+source_center = [0, 0, -(design_region_height / 2 + 1.5)]  # Source 1.5 um below lens
 source_size = mp.Vector3(design_region_width, design_region_width, 0)  # Source covers width of lens
 src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)  # Gaussian source
 source = [mp.Source(src, component=mp.Ex, size=source_size, center=source_center)]
@@ -152,7 +134,7 @@ def mapping(x, eta, beta):
         x,
         filter_radius,
         design_region_width,
-        design_region_height,
+        design_region_width,
         Nx,
         Ny
     )
@@ -160,27 +142,14 @@ def mapping(x, eta, beta):
     # projection
     projected_field = mpa.tanh_projection(filtered_field, beta, eta)  # Make binary
 
-    projected_field = (
-                              npa.flipud(projected_field) + projected_field
-                      ) / 2  # left-right symmetry
-
     # interpolate to actual materials
     return projected_field.flatten()
 
 
 # Lens geometry
 geometry = [
-    mp.Cylinder(
-        center=design_region.center, radius=design_region_width/2, material=design_variables, height=design_region_height
-    ),
-    # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
-    #
-    # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
-    # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
-    # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
-]
-geometry_plot = [mp.Cylinder(
-        center=design_region.center, radius=design_region_width/2, material=Si, height=design_region_height
+	mp.Block(
+        center=design_region.center, size=design_region.size, material=design_variables
     ),
 ]
 
@@ -196,11 +165,11 @@ sim = mp.Simulation(
     resolution=resolution,
 )
 
-# Focus point, 15 µm beyond centre of lens
-far_x = [mp.Vector3(0, 0, 15)]
+# Focus point, 6 uM beyond centre of lens
+far_x = [mp.Vector3(0, 0, 6)]
 NearRegions = [  # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, 0, design_region_height / 2 + 1.5),  # 1.5 µm above lens
+        center=mp.Vector3(0, 0, design_region_height / 2 + 0.4),  # 0.4 um above lens
         size=mp.Vector3(design_region_width, design_region_width, 0),  # spans design region
         weight=+1,  # field contribution is positive (real)
     )
@@ -210,6 +179,7 @@ ob_list = [FarFields]
 
 
 def J1(FF):
+    print(FF)
     return npa.mean(npa.abs(FF[0, :, 2]) ** 2)  # only first (only point), mean of all frequencies, and third field (Ez)
 
 
@@ -222,15 +192,6 @@ opt = mpa.OptimizationProblem(
     frequencies=frequencies,
     maximum_run_time=2000,
 )
-
-print("plot")
-# sim.plot3D(save_to_image=True, image_name="{0}.png".format(scriptName))
-print("plot2")
-# sim.plot3D()
-output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(design_region_width, design_region_width, 0))
-plt.figure()
-sim.plot2D(output_plane=output_plane)
-plt.savefig(scriptName + ".png")
 
 # Gradient
 evaluation_history = []  # Keep track of objective function evaluations
@@ -250,33 +211,37 @@ def f(v, gradient, cur_beta):
 
     if gradient.size > 0:
         gradient[:] = tensor_jacobian_product(mapping, 0)(
-            v, eta_i, cur_beta, np.sum(dJ_du, axis=1)
-        )  # backprop
+            v, eta_i, cur_beta, dJ_du)  # backprop
 
-    evaluation_history.append(np.real(f0))  # add objective function evaluation to list
+    evaluation_history.append(f0)  # add objective function evaluation to list
 
     sim.plot2D(output_plane=output_plane)
-    plt.savefig(fname=cur_iter[0] + ".png")
+    plt.savefig(fname=scriptName + "/" + str(cur_iter[0]) + ".png")
 
-    return np.real(f0)
+    return f0
 
 # Method of moving  asymptotes
 algorithm = nlopt.LD_MMA
-n = Nx * Ny * Nz  # number of parameters
+n = Nx * Ny  # number of parameters
 
 # Initial guess
 x = np.ones((n,)) * 0.5  # average everywhere
 
 # lower and upper bounds
-lb = np.zeros((Nx * Ny * Nz,))
-ub = np.ones((Nx * Ny * Nz,))
+lb = np.zeros((Nx * Ny))
+ub = np.ones((Nx * Ny))
+
+output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(design_region_width, design_region_width, 0))
+plt.figure()
+sim.plot2D(output_plane=output_plane)
+plt.savefig(scriptName + "/design.png")
 
 cur_beta = 4
 beta_scale = 2
 num_betas = 6
 update_factor = 12
 totalIterations = num_betas * update_factor
-ftol = 1e-5
+ftol = 1e-4
 start = datetime.datetime.now()
 print("Opitimization started at " + str(start))
 # sendNotification("Opitimization started at " + str(start))
@@ -318,4 +283,3 @@ plt.savefig("./" + scriptName + "/intensities.png")
 np.save("./" + scriptName + "/x", x)
 
 # sendNotification("Simulation finished")
-
