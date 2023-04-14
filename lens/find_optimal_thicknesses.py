@@ -1,19 +1,10 @@
 import numpy as np
 import random
 from matplotlib import pyplot as plt
+import os
 """
 Simulated annealing optimization of the thicknesses of a lens.
 """
-
-frequencies = [0.47, 0.65] # frequencies that you want to optimise independently
-# frequencies = [0.6]
-num_layers = 4 # number of layers to optimize
-power = 2
-
-max_thickness = 0.5 # maximum thickness of a single layer
-deltan = 2.7 - 1.45 # difference in refractive index
-
-step_size = 0.1 # size of perturbation in every step
 
 def phase(freqs, thickness, deltan):
     """
@@ -46,7 +37,7 @@ def get_closest_phases(phases, ref_phase):
     Makes sure distance between phases takes into account periodicity
     """
     closest_phases = phases
-    for i in range(max(np.shape(phases))):
+    for i in range(np.shape(phases)[0]):
         phase = phases[i]
         for freq_nr in range(len(phase)):
             if phase[freq_nr] - ref_phase[freq_nr] > 0.5:
@@ -82,90 +73,110 @@ def get_temperature(i, iterations):
     """
     return 5e-3*np.exp(-4 * i / iterations)
 
-seed = 111 # makes sure we can reproduce results --> change to get different results
-np.random.seed(seed)
+if not os.path.exists("./best_layers"):
+    # if the demo_folder directory is not present
+    # then create it.
+    os.makedirs("./best_layers")
 
-# initialize starting layer thicknesses and objective
-layers = np.array([random.randint(0, int(max_thickness*1e3))/1e3 for i in range(num_layers)])
+max_thicknesses = [0.3, 0.4, 0.5, 0.6] # maximum thickness of a single layer
+
+for num_layers in range(1, 7):
+    for max_thickness in max_thicknesses:
+        # num_layers = 4 # number of layers to optimize
+        power = 2
+        frequencies = [0.47, 0.55, 0.65] # frequencies that you want to optimise independently
+        # frequencies = [0.6]
 
 
-# layers = np.array([0.5, 0.278, 0.087, 0.42])
-# layers = np.array([0.356, 0.255])
-current_obj = objective(frequencies, layers, deltan)
-best_obj = current_obj
-best_layers = layers
-iterations = int(1e4)
-accuracy = int(2e2)
-plt.figure()
-for i in range(iterations):
-    T = get_temperature(i, iterations)
-    # change_layer = random.randint(0, num_layers-1)
-    # old_thickness = layers[change_layer]
-    # layers[change_layer] = random.randint(0, int(max_thickness*1e3)) / 1e3 # change layer thickness on nm accuracy
+        deltan = 2.7 - 1.45 # difference in refractive index
 
-    # Perturbation on thicknesses:
-    difference = [step_size*(1-random.randint(0, int(2*step_size*1e3)) / (1e3*step_size)) for i in range(num_layers)]
-    new_layers = [min(max(layers[i] + difference[i], 0), max_thickness) for i in range(num_layers)]
+        step_size = 0.1 # size of perturbation in every step
 
-    # new objective
-    new_obj = objective(frequencies, new_layers, deltan, accuracy)
 
-    # check if energy decreased OR accept increase with certain probability
-    if new_obj <= current_obj or np.exp((current_obj - new_obj) / T) > random.random():
+        seed = 111 # makes sure we can reproduce results --> change to get different results
+        np.random.seed(seed)
 
-        print(current_obj - new_obj)
-        # adjust new value
-        current_obj = new_obj
-        layers = new_layers
+        # initialize starting layer thicknesses and objective
+        layers = np.array([random.randint(0, int(max_thickness*1e3))/1e3 for i in range(num_layers)])
 
-        if new_obj < best_obj:
-            best_obj = new_obj
-            best_layers = new_layers
 
-        # plot
+        # layers = np.array([0.5, 0.278, 0.087, 0.42])
+        # layers = np.array([0.356, 0.255])
+        current_obj = objective(frequencies, layers, deltan)
+        best_obj = current_obj
+        best_layers = layers
+        iterations = int(1e4)
+        accuracy = int(2e2)
+        plt.figure()
+        for i in range(iterations):
+            T = get_temperature(i, iterations)
+            # change_layer = random.randint(0, num_layers-1)
+            # old_thickness = layers[change_layer]
+            # layers[change_layer] = random.randint(0, int(max_thickness*1e3)) / 1e3 # change layer thickness on nm accuracy
+
+            # Perturbation on thicknesses:
+            difference = [step_size*(1-random.randint(0, int(2*step_size*1e3)) / (1e3*step_size)) for i in range(num_layers)]
+            new_layers = [min(max(layers[i] + difference[i], 0), max_thickness) for i in range(num_layers)]
+
+            # new objective
+            new_obj = objective(frequencies, new_layers, deltan, accuracy)
+
+            # check if energy decreased OR accept increase with certain probability
+            if new_obj <= current_obj or np.exp((current_obj - new_obj) / T) > random.random():
+
+                print(current_obj - new_obj)
+                # adjust new value
+                current_obj = new_obj
+                layers = new_layers
+
+                if new_obj < best_obj:
+                    best_obj = new_obj
+                    best_layers = new_layers
+
+                # plot
+                # if len(frequencies) == 2:
+                #     plt.clf()
+                #     phases = np.array(get_all_phases(frequencies, layers, deltan))
+                #     plt.scatter(phases[:, 0], phases[:, 1])
+                #     plt.xlim((0, 1))
+                #     plt.ylim((0, 1))
+                #     plt.title("Objective = " + str(current_obj))
+                #     plt.pause(0.00001)
+
+            # print progress
+            if 10*i % iterations == 0:
+                print(str(int(i/iterations*100)) + " %")
+                if (10*i)//iterations == 9:
+                    step_size = 0.01
+
+                accuracy = ((10*i)//iterations+1) * 200
+                best_obj = objective(frequencies, new_layers, deltan, accuracy)
+                if current_obj < best_obj:
+                    best_obj = current_obj
+                    best_layers = layers
+
+
+
+        # print result
+        print(best_obj)
+        print(best_layers)
+        phases = np.array(get_all_phases(frequencies, best_layers, deltan))
+        print(phases)
+
+        # save result
+        with open("./best_layers/best_results_"+ str(power) + "thorder_freq_" + str(frequencies) + "_layers_" + str(num_layers) + ".txt", 'a') as var_file:
+            var_file.write("objective \t" + str(best_obj) + "\n")
+            var_file.write("best_design \t" + str(best_layers) + "\n")
+            var_file.write("phases \t" + str(phases) + "\n")
+
+        # plot result
         if len(frequencies) == 2:
-            plt.clf()
-            phases = np.array(get_all_phases(frequencies, layers, deltan))
+            plt.figure()
             plt.scatter(phases[:, 0], phases[:, 1])
             plt.xlim((0, 1))
             plt.ylim((0, 1))
-            plt.title("Objective = " + str(current_obj))
-            plt.pause(0.00001)
-
-    # print progress
-    if 10*i % iterations == 0:
-        print(str(int(i/iterations*100)) + " %")
-        if (10*i)//iterations == 9:
-            step_size = 0.01
-
-        accuracy = ((10*i)//iterations+1) * 200
-        best_obj = objective(frequencies, new_layers, deltan, accuracy)
-        if current_obj < best_obj:
-            best_obj = current_obj
-            best_layers = layers
-
-
-
-# print result
-print(best_obj)
-print(best_layers)
-phases = np.array(get_all_phases(frequencies, best_layers, deltan))
-print(phases)
-
-# save result
-with open("./best_layers/best_results_"+ str(power) + "thorder_freq_" + str(frequencies) + "_layers_" + str(num_layers) + ".txt", 'a') as var_file:
-    var_file.write("objective \t" + str(best_obj) + "\n")
-    var_file.write("best_design \t" + str(best_layers) + "\n")
-    var_file.write("phases \t" + str(phases) + "\n")
-
-# plot result
-if len(frequencies) == 2:
-    plt.figure()
-    plt.scatter(phases[:, 0], phases[:, 1])
-    plt.xlim((0, 1))
-    plt.ylim((0, 1))
-    plt.xlabel("Phase shift for blue [/360°]")
-    plt.ylabel("Phase shift for red [/360°]")
-    plt.show()
+            plt.xlabel("Phase shift for blue [/360°]")
+            plt.ylabel("Phase shift for red [/360°]")
+            plt.savefig("./best_layers/best_results_"+ str(power) + "thorder_freq_" + str(frequencies) + "_layers_" + str(num_layers) + "max_t" + str(max_thickness) + ".png")
 
 

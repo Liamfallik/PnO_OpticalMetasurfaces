@@ -12,10 +12,12 @@ from scipy import special, signal
 import datetime
 import requests # send notifications
 import random
+from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "metalens_img_RandomSampling_test"
+scriptName = "metalens_img_RandomSampling_5layers_5x80nm_noMinFeat"
 symmetry = True # Impose symmetry around x = 0 line
+
 
 def sendNotification(message):
     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -40,6 +42,57 @@ def sendPhoto(image_path):
         except:
             print("No internet connection: couldn't send notification...")
 
+
+def focussing_efficiency(intensity1, intensity2):
+    total_power = sum(intensity2)
+
+    center = np.argmax(intensity1)
+    length = max(np.size(intensity1))
+
+    value = intensity1[center]
+    for i in range(center+1, length):
+        new_value = intensity1[i]
+        if new_value > value:
+            zero2 = i
+        else:
+            value = new_value
+
+    value = intensity1[center]
+    for i in range(center-1, 0, -1):
+        new_value = intensity1[i]
+        if new_value > value:
+            zero1 = i
+        else:
+            value = new_value
+
+    focussed_power = sum(intensity1[zero1+1:zero2])
+
+    return focussed_power / total_power
+
+
+def get_FWHM(intensity, x):
+
+    center = np.argmax(intensity)
+    length = max(np.size(intensity))
+
+    value = intensity[center]
+    half_max = value / 2
+    for i in range(center+1, length):
+        new_value = intensity[i]
+        if new_value < half_max:
+            half_right = x[i-1] + (x[i] - x[i-1]) * (value - half_max) / (value - new_value)
+        else:
+            value = new_value
+
+    value = intensity[center]
+    for i in range(center-1, 0, -1):
+        new_value = intensity[i]
+        if new_value < half_max:
+            half_left = x[i+1] + (x[i] - x[i+1]) * (value - half_max) / (value - new_value)
+        else:
+            value = new_value
+
+    return half_right - half_left
 
 def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     """A linear conic filter, also known as a "Hat" filter in the literature [1].
@@ -81,6 +134,7 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     return mpa.simple_2d_filter(x, h)
 
 
+
 # checking if the directory demo_folder
 # exist or not.
 if not os.path.exists("./" + scriptName):
@@ -98,9 +152,9 @@ TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 4 # amount of layers
+num_layers = 5 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.096]*4 # height of layer
+design_region_height = [0.08]*num_layers # height of layer
 spacing = 0 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
@@ -135,7 +189,9 @@ pml_layers = [mp.PML(pml_size)]
 # Source
 fcen = frequencies[1]
 fwidth = 0.03 # 0.2
-source_center = [0, -(half_total_height + 0.4), 0] # Source 0.4 µm below lens
+factor = 2/(fwidth * np.sqrt(2*pi))
+source_pos = -(half_total_height + 0.4)
+source_center = [0, source_pos, 0] # Source 0.4 µm below lens
 source_size = mp.Vector3(design_region_width + 2*empty_space, 0, 0) # Source covers width of lens
 # src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
 # source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
@@ -565,7 +621,6 @@ plt.close()
 with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
     var_file.write("best_nr \t%d" % best_nr + "\n")
     var_file.write("best_f0 \t" + str(best_f0) + "\n")
-    var_file.write("run_time \t" + str(datetime.datetime.now() - start0) + "\n")
     var_file.write("best_design \t" + str(best_design) + "\n")
 
 
@@ -580,42 +635,46 @@ geometry.append(mp.Block(
     material=SiO2
 ))
 
-# simulate intensities
-sim = mp.Simulation(resolution=resolution,
-                    cell_size=mp.Vector3(Sx, Sy2),
-                    boundary_layers=pml_layers,
-                    geometry=geometry,
-                    k_point=kpoint,
-                    sources=source,
-                    symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
+efficiency = []
+FWHM = []
+for freq in frequencies:
+    # simulate intensities
+    sim = mp.Simulation(resolution=resolution,
+                        cell_size=mp.Vector3(Sx, Sy2),
+                        boundary_layers=pml_layers,
+                        geometry=geometry,
+                        k_point=kpoint,
+                        sources=source,
+                        symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
 
-near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
-                                        size=mp.Vector3(x=design_region_width)) for freq in frequencies]
-near_fields = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
-                                  size=mp.Vector3(x=Sx, y=Sy2)) for freq in frequencies]
-# near_fields_near = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=half_total_height + 0.4),
-#                                       size=mp.Vector3(x=design_region_width))
+    near_fields_focus = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
+                                            size=mp.Vector3(x=design_region_width))
+    near_fields_before = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=(-half_total_height + source_pos) / 2),
+                                            size=mp.Vector3(x=design_region_width))
+    near_fields = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
+                                      size=mp.Vector3(x=Sx, y=Sy2))
 
-sim.run(until_after_sources=100)
+    sim.run(until_after_sources=100)
 
-focussed_field = [sim.get_dft_array(field, mp.Ez, 0) for field in near_fields_focus]
-scattered_field = [sim.get_dft_array(field, mp.Ez, 0) for field in near_fields]
-# near_field = sim.get_dft_array(near_fields, mp.Ez, 0)
+    focussed_field = sim.get_dft_array(near_fields_focus, mp.Ez, 0)
+    before_field = sim.get_dft_array(near_fields_before, mp.Ez, 0)
+    scattered_field = sim.get_dft_array(near_fields, mp.Ez, 0)
+    # near_field = sim.get_dft_array(near_fields, mp.Ez, 0)
 
-focussed_amplitude = [np.abs(field) ** 2 for field in focussed_field]
-scattered_amplitude = [np.abs(field) ** 2 for field in scattered_field]
-# print(scattered_amplitude)
-# print(sim.get_array_metadata(dft_cell=near_fields))
-# print(np.shape(sim.get_array_metadata(dft_cell=near_fields)))
-[xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus[1])
-[xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields[1])
+    focussed_amplitude = np.abs(focussed_field) ** 2
+    scattered_amplitude = np.abs(scattered_field) ** 2
+    before_amplitude = np.abs(before_field) ** 2
 
-for i in range(nf):
+    [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
+    [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
+
+    efficiency = []
+
     # plot colormesh
     plt.figure(dpi=150)
-    plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude[i]))), cmap='inferno', shading='gouraud',
+    plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude))), cmap='inferno', shading='gouraud',
                    vmin=0,
-                   vmax=scattered_amplitude[i].max())
+                   vmax=scattered_amplitude.max())
     plt.gca().set_aspect('equal')
     plt.xlabel('x (μm)')
     plt.ylabel('y (μm)')
@@ -626,19 +685,29 @@ for i in range(nf):
     cax = divider.append_axes("right", size="5%", pad=0.05)
     plt.colorbar(cax=cax)
     plt.tight_layout()
-    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(1 / frequencies[i]) + ".png"
+    fileName = f"./" + scriptName + "/intensityMapAtWavelength" + str(1 / freq) + ".png"
     plt.savefig(fileName)
 
     # plot intensity around focal point
     plt.figure()
-    plt.plot(xi, focussed_amplitude[i], 'bo-')
+    plt.plot(xi, focussed_amplitude, 'bo-')
     plt.xlabel("x (μm)")
     plt.ylabel("field amplitude")
-    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(
-        1 / frequencies[i]) + ".png"
+    fileName = f"./" + scriptName + "/intensityOverLineAtWavelength" + str(
+        1 / frequencies) + ".png"
     plt.savefig(fileName)
 
-np.save("./" + scriptName + "/" + scriptName_i + "/intensity_at_focus", focussed_amplitude)
+    efficiency = [efficiency, focussing_efficiency(focussed_amplitude, before_amplitude)]
+    FWHM = [FWHM, get_FWHM(focussed_amplitude, xi)]
+
+    np.save("./" + scriptName + "/" + scriptName_i + "/intensity_at_focus_freq" + str(100/int(100*freq)), focussed_amplitude)
+    sendPhoto(fileName)
+
+
+with open("./" + scriptName + "/best_result.txt", 'a') as var_file:
+    var_file.write("focussing_efficiency \t" + str(efficiency) + "\n")
+    var_file.write("FWHM \t" + str(FMHM) + "\n")
+    var_file.write("run_time \t" + str(datetime.datetime.now() - start0) + "\n")
 
 sendNotification("Simulation finished; best FOM: " + str(best_f0))
-sendPhoto(fileName)
+
