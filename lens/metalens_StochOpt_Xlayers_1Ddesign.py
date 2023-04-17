@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "metalens_img_StochOpt_6x69nm"
+scriptName = "metalens_img_StochOpt_test22"
 symmetry = True # Impose symmetry around x = 0 line
 
 def sendNotification(message):
@@ -46,23 +46,31 @@ def focussing_efficiency(intensity1, intensity2):
     total_power = sum(intensity2)
 
     center = np.argmax(intensity1)
-    length = max(np.size(intensity1))
+    length = max(np.shape(intensity1))
 
     value = intensity1[center]
-    for i in range(center+1, length):
+    go = True
+    i = center + 1
+    while go and i < length:
         new_value = intensity1[i]
         if new_value > value:
             zero2 = i
+            go = False
         else:
             value = new_value
+        i += 1
 
     value = intensity1[center]
-    for i in range(center-1, 0, -1):
+    go = True
+    i = center - 1
+    while go and i >= 0:
         new_value = intensity1[i]
         if new_value > value:
             zero1 = i
+            go = False
         else:
             value = new_value
+        i -= 1
 
     focussed_power = sum(intensity1[zero1+1:zero2])
 
@@ -72,24 +80,32 @@ def focussing_efficiency(intensity1, intensity2):
 def get_FWHM(intensity, x):
 
     center = np.argmax(intensity)
-    length = max(np.size(intensity))
+    length = max(np.shape(intensity))
 
     value = intensity[center]
     half_max = value / 2
-    for i in range(center+1, length):
+    go = True
+    i = center + 1
+    while go and i < length:
         new_value = intensity[i]
         if new_value < half_max:
             half_right = x[i-1] + (x[i] - x[i-1]) * (value - half_max) / (value - new_value)
+            go = False
         else:
             value = new_value
+        i += 1
 
     value = intensity[center]
-    for i in range(center-1, 0, -1):
+    go = True
+    i = center - 1
+    while go and i >= 0:
         new_value = intensity[i]
         if new_value < half_max:
             half_left = x[i+1] + (x[i] - x[i+1]) * (value - half_max) / (value - new_value)
+            go = False
         else:
             value = new_value
+        i -= 1
 
     return half_right - half_left
 
@@ -190,7 +206,8 @@ pml_layers = [mp.PML(pml_size)]
 fcen = frequencies[1]
 fwidth = 0.03 # 0.2
 factor = 2/(fwidth * np.sqrt(2*pi))
-source_center = [0, -(half_total_height + 0.4), 0] # Source 0.4 µm below lens
+source_pos = -(half_total_height + 0.4)
+source_center = [0, source_pos, 0] # Source 0.4 µm below lens
 source_size = mp.Vector3(design_region_width + 2*empty_space, 0, 0) # Source covers width of lens
 # src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
 # source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
@@ -329,7 +346,7 @@ def f(v, gradient, cur_beta):
         gradient[:] = np.reshape(gradi, [n])
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
-
+    print(evaluation_history[-1])
 
     plt.figure() # Plot current design
     ax = plt.gca()
@@ -350,6 +367,14 @@ def f(v, gradient, cur_beta):
     # plt.figure()
     # plt.plot(Efield ** 2)
 
+    plt.figure()
+    # plt.fill_between(np.arange(num_samples), ubev, lbev, alpha=0.3)
+    plt.plot(evaluation_history, "o-")
+    plt.grid(True)
+    plt.xlabel("Iteration")
+    plt.ylabel("FOM")
+    fileName = f"./" + scriptName + "/" + scriptName_i + "/FOM.png"
+    plt.savefig(fileName)
     plt.close()
 
 
@@ -378,7 +403,7 @@ with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
     var_file.write("focal_point \t" + str(focal_point) + "\n")
     var_file.write("seed \t%d" % seed + "\n")
 
-num_samples = 10
+num_samples = 1#5
 # store best objective value
 best_f0 = 0
 best_design = None
@@ -443,13 +468,13 @@ for sample_nr in range(num_samples):
 
 
     # x = np.reshape(reshaped_x, [n])# + 0.5 * (-0.5 + np.random.rand(n))
-    # file_path = "x.npy"
-    # with open(file_path, 'rb') as file:
-    #     x = np.load(file)
+    file_path = "x.npy"
+    with open(file_path, 'rb') as file:
+        x = np.load(file)
 
-    if symmetry:
-        for i in range(num_layers):
-            x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
+    # if symmetry:
+    #     for i in range(num_layers):
+    #         x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
     # x[Nx:] = np.zeros(n - Nx)
 
     scriptName_i = "sample_" + str(sample_nr)
@@ -482,11 +507,11 @@ for sample_nr in range(num_samples):
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
 
     # Optimization
-    cur_beta = 4 # 4
+    cur_beta = 4*2**6 # 4
     beta_scale = 2 # 2
-    num_betas = 7 # 6
-    local_opt_steps = 5 # 12
-    monte_carlo_steps = 4
+    num_betas = 7*0 # 6
+    local_opt_steps = 15 # 12
+    monte_carlo_steps = 5
     random_perturbation = 0.5
     perturbation_scale = 1.2
     totalIterations = num_betas * local_opt_steps * monte_carlo_steps
@@ -495,9 +520,12 @@ for sample_nr in range(num_samples):
     print("Opitimization started at " + str(start))
     sendNotification("Opitimization started at " + str(start))
     best_x = x
-    best_f0 = 0
+    best_f = 1
 
     for iters in range(num_betas):
+        if iters == num_betas - 1:
+            local_opt_steps = 2*local_opt_steps
+        best_f = 0
         for monte_step in range(monte_carlo_steps):
             solver = nlopt.opt(algorithm, n)
             solver.set_lower_bounds(lb)
@@ -512,8 +540,10 @@ for sample_nr in range(num_samples):
 
             x = solver.optimize(x)
 
-            if evaluation_history[-1] > best_f0:
-                best_f0 = evaluation_history[-1]
+            if evaluation_history[-1] > best_f:
+                print(evaluation_history[-1])
+                print(best_f)
+                best_f = evaluation_history[-1]
                 best_x = x
 
             estimatedSimulationTime = (datetime.datetime.now() - start) * (num_betas / (iters + (monte_step + 1) / monte_carlo_steps))
@@ -526,8 +556,8 @@ for sample_nr in range(num_samples):
         np.save("./" + scriptName + "/" + scriptName_i + "/x", best_x)
         plt.close()
 
-
-
+    cur_beta = cur_beta / beta_scale
+    x = best_x
     # Plot final design
     reshaped_x = np.reshape(x, [num_layers, Nx])
     opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
@@ -546,15 +576,15 @@ for sample_nr in range(num_samples):
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesign.png")
 
     # Check intensities in optimal design
-    f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
+    f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)], need_gradient=False)
     frequencies = opt.frequencies
 
-    if f0 > best_f0:
-        best_f0 = f0
-        best_design = x
+    if best_f > best_f0:
+        best_f0 = best_f
+        best_design = best_x
         best_nr = sample_nr
 
-    print("Objective_value = " + str(f0))
+    print("Objective_value = " + str(best_f))
 
     intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
     print(opt.get_objective_arguments())
@@ -572,7 +602,6 @@ for sample_nr in range(num_samples):
     np.save("./" + scriptName + "/" + scriptName_i + "/v", x)
 
     animate.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animation.gif")
-    animateField.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animationField.gif")
 
     Sy2 = 20
     geometry.append(mp.Block(
@@ -600,26 +629,22 @@ for sample_nr in range(num_samples):
         opt.sim.run(until=200)
         plt.figure(figsize=(Sx, Sy2))
         opt.sim.plot2D(fields=mp.Ez)
-        fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(1/freq) + ".png"
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(int(100/freq) / 100) + ".png"
         plt.savefig(fileName)
-        try:
-            Efield = opt.get_efield_z()
-            print(Efield)
-            plt.figure()
-            plt.imshow(np.abs(Efield)**2, interpolation="nearest", origin="upper")
-            plt.colorbar()
-            fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityAtWavelength" + str(1 / freq) + ".png"
-            plt.savefig(fileName)
-        except:
-            print("Plotting intensity failed, needs updated meep files")
+        # try:
+        #     Efield = opt.get_efield_z()
+        #     print(Efield)
+        #     plt.figure()
+        #     plt.imshow(np.abs(Efield)**2, interpolation="nearest", origin="upper")
+        #     plt.colorbar()
+        #     fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityAtWavelength" + str(1 / freq) + ".png"
+        #     plt.savefig(fileName)
+        # except:
+        #     print("Plotting intensity failed, needs updated meep files")
 
-    lbev = np.min(evaluation_history, axis=1)
-    ubev = np.max(evaluation_history, axis=1)
-    mean = np.mean(evaluation_history, axis=1)
 
     plt.figure()
-    plt.fill_between(np.arange(num_samples), ubev, lbev, alpha=0.3)
-    plt.plot(mean, "o-")
+    plt.plot(evaluation_history, "o-")
     plt.grid(True)
     plt.xlabel("Iteration")
     plt.ylabel("FOM")
@@ -627,7 +652,6 @@ for sample_nr in range(num_samples):
     plt.savefig(fileName)
     plt.close()
 
-    plt.close()
 
     estimatedSimulationTime = (datetime.datetime.now() - start0) * num_samples / (sample_nr + 1)
     sendNotification("Opitimization " + str(int(10000 * (sample_nr + 1) / num_samples)/100) + " % completed; eta at " +
@@ -651,7 +675,7 @@ plt.savefig(fileName)
 plt.close()
 
 with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
-    var_file.write("best_nr \t%d" % best_nr + "\n")
+    var_file.write("best_nr \t" + str(best_nr) + "\n")
     var_file.write("best_f0 \t" + str(best_f0) + "\n")
     var_file.write("run_time \t" + str(datetime.datetime.now() - start0) + "\n")
     var_file.write("best_design \t" + str(best_design) + "\n")
@@ -659,7 +683,8 @@ with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
 
 # simulate intensities on best design
 scriptName_i = "sample_" + str(best_nr)
-opt.update_design([mapping(best_design[i, :], eta_i, cur_beta) for i in range(num_layers)])
+best_design_reshaped = np.reshape(best_design, [num_layers, Nx])
+opt.update_design([mapping(best_design_reshaped[i, :], eta_i, cur_beta) for i in range(num_layers)])
 
 Sy2 = 20
 geometry.append(mp.Block(
@@ -682,7 +707,7 @@ for freq in frequencies:
     near_fields_focus = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
                                            size=mp.Vector3(x=design_region_width))
     near_fields_before = sim.add_dft_fields([mp.Ez], freq, 0, 1,
-                                            center=mp.Vector3(y=(-half_total_height + source_pos) / 2),
+                                            center=mp.Vector3(y=-(-half_total_height + source_pos) / 2),
                                             size=mp.Vector3(x=design_region_width))
     near_fields = sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
                                      size=mp.Vector3(x=Sx, y=Sy2))
@@ -701,8 +726,6 @@ for freq in frequencies:
     [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
     [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
 
-    efficiency = []
-
     # plot colormesh
     plt.figure(dpi=150)
     plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude))), cmap='inferno', shading='gouraud',
@@ -718,7 +741,7 @@ for freq in frequencies:
     cax = divider.append_axes("right", size="5%", pad=0.05)
     plt.colorbar(cax=cax)
     plt.tight_layout()
-    fileName = f"./" + scriptName + "/intensityMapAtWavelength" + str(1 / freq) + ".png"
+    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(int(100/freq) / 100) + ".png"
     plt.savefig(fileName)
 
     # plot intensity around focal point
@@ -726,20 +749,19 @@ for freq in frequencies:
     plt.plot(xi, focussed_amplitude, 'bo-')
     plt.xlabel("x (μm)")
     plt.ylabel("field amplitude")
-    fileName = f"./" + scriptName + "/intensityOverLineAtWavelength" + str(
-        1 / frequencies) + ".png"
+    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(int(100/freq) / 100) + ".png"
     plt.savefig(fileName)
-
-    efficiency = [efficiency, focussing_efficiency(focussed_amplitude, before_amplitude)]
-    FWHM = [FWHM, get_FWHM(focussed_amplitude, xi)]
-
-    np.save("./" + scriptName + "/" + scriptName_i + "/intensity_at_focus_freq" + str(100 / int(100 * freq)),
-            focussed_amplitude)
     sendPhoto(fileName)
+
+    efficiency.append(focussing_efficiency(focussed_amplitude, before_amplitude))
+    FWHM.append(get_FWHM(focussed_amplitude, xi))
+    
+    np.save("./" + scriptName + "/" + scriptName_i + "/intensity_at_focus_freq" + str(int(100/freq) / 100),
+            focussed_amplitude)
 
 with open("./" + scriptName + "/best_result.txt", 'a') as var_file:
     var_file.write("focussing_efficiency \t" + str(efficiency) + "\n")
-    var_file.write("FWHM \t" + str(FMHM) + "\n")
+    var_file.write("FWHM \t" + str(FWHM) + "\n")
     var_file.write("run_time \t" + str(datetime.datetime.now() - start0) + "\n")
 
 sendNotification("Simulation finished; best FOM: " + str(best_f0))
