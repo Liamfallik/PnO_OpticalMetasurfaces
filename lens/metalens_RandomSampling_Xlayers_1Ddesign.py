@@ -680,13 +680,9 @@ for freq in frequencies:
     scattered_field = sim.get_dft_array(near_fields, mp.Ez, 0)
     # near_field = sim.get_dft_array(near_fields, mp.Ez, 0)
 
-    print(focussed_field)
-
     focussed_amplitude = np.abs(focussed_field) ** 2
     scattered_amplitude = np.abs(scattered_field) ** 2
     before_amplitude = np.abs(before_field) ** 2
-
-    print(focussed_amplitude)
 
     [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
     [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)

@@ -500,7 +500,7 @@ for sample_nr in range(num_samples):
 
     # Check intensities in optimal design
     f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
-    frequencies = opt.frequencies
+    # frequencies = opt.frequencies
 
     if f0 > best_f0:
         best_f0 = f0
