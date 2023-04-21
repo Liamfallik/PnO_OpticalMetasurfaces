@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "metalens_img_RandomSampling_6layers_6x69nm_2"
+scriptName = "metalens_img_RandomSampling_test"
 symmetry = True # Impose symmetry around x = 0 line
 
 # Dimensions
@@ -26,7 +26,7 @@ spacing = 0 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
 
-num_samples = 30
+num_samples = 1 # 30
 
 
 def sendNotification(message):
@@ -60,20 +60,28 @@ def focussing_efficiency(intensity1, intensity2):
     length = max(np.shape(intensity1))
 
     value = intensity1[center]
-    for i in range(center+1, length):
+    go = True
+    i = center + 1
+    while go and i < length:
         new_value = intensity1[i]
         if new_value > value:
             zero2 = i
+            go = False
         else:
             value = new_value
+        i += 1
 
     value = intensity1[center]
-    for i in range(center-1, 0, -1):
+    go = True
+    i = center - 1
+    while go and i >= 0:
         new_value = intensity1[i]
         if new_value > value:
             zero1 = i
+            go = False
         else:
             value = new_value
+        i -= 1
 
     focussed_power = sum(intensity1[zero1+1:zero2])
 
@@ -87,20 +95,28 @@ def get_FWHM(intensity, x):
 
     value = intensity[center]
     half_max = value / 2
-    for i in range(center+1, length):
+    go = True
+    i = center + 1
+    while go and i < length:
         new_value = intensity[i]
         if new_value < half_max:
             half_right = x[i-1] + (x[i] - x[i-1]) * (value - half_max) / (value - new_value)
+            go = False
         else:
             value = new_value
+        i += 1
 
     value = intensity[center]
-    for i in range(center-1, 0, -1):
+    go = True
+    i = center - 1
+    while go and i >= 0:
         new_value = intensity[i]
         if new_value < half_max:
             half_left = x[i+1] + (x[i] - x[i+1]) * (value - half_max) / (value - new_value)
+            go = False
         else:
             value = new_value
+        i -= 1
 
     return half_right - half_left
 
@@ -407,18 +423,8 @@ for sample_nr in range(num_samples):
         update_epsilon=True,  # required for the geometry to update dynamically
         nb=False  # True required if running in a Jupyter notebook
     )
-    animateField = Animate2D(
-        fields=mp.Ez,
-        # realtime=True,
-        eps_parameters={'contour': False, 'alpha': 1, 'frequency': frequencies[1]},
-        plot_sources_flag=True,
-        plot_monitors_flag=True,
-        plot_boundaries_flag=True,
-        update_epsilon=True,  # required for the geometry to update dynamically
-        nb=False  # True required if running in a Jupyter notebook
-    )
     # This will trigger the animation at the end of each simulation
-    opt.step_funcs = [mp.at_end(animate), mp.at_end(animateField)]
+    opt.step_funcs = [mp.at_end(animate)]
 
     # Method of moving  asymptotes
     algorithm = nlopt.LD_MMA # nlopt.LD_MMA
@@ -490,8 +496,10 @@ for sample_nr in range(num_samples):
     ftol = 1e-3 # 1e-5
     start = datetime.datetime.now()
     print("Opitimization started at " + str(start))
-    sendNotification("Opitimization started at " + str(start))
+    # sendNotification("Opitimization started at " + str(start))
     for iters in range(num_betas):
+        if iters == num_betas - 1:
+            cur_beta = 1e6
         solver = nlopt.opt(algorithm, n)
         solver.set_lower_bounds(lb)
         solver.set_upper_bounds(ub)
@@ -606,7 +614,7 @@ for sample_nr in range(num_samples):
 
     estimatedSimulationTime = (datetime.datetime.now() - start0) * num_samples / (sample_nr + 1)
     sendNotification("Opitimization " + str(int(10000 * (sample_nr + 1) / num_samples)/100) + " % completed; eta at " +
-                     str(start0 + estimatedSimulationTime))
+                     str(start0 + estimatedSimulationTime) + "; " + scriptName)
 
 print(best_nr)
 print(best_f0)
@@ -646,6 +654,9 @@ efficiency = []
 FWHM = []
 for freq in frequencies:
     # simulate intensities
+
+    src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
+    source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
     sim = mp.Simulation(resolution=resolution,
                         cell_size=mp.Vector3(Sx, Sy2),
                         boundary_layers=pml_layers,
@@ -669,9 +680,13 @@ for freq in frequencies:
     scattered_field = sim.get_dft_array(near_fields, mp.Ez, 0)
     # near_field = sim.get_dft_array(near_fields, mp.Ez, 0)
 
+    print(focussed_field)
+
     focussed_amplitude = np.abs(focussed_field) ** 2
     scattered_amplitude = np.abs(scattered_field) ** 2
     before_amplitude = np.abs(before_field) ** 2
+
+    print(focussed_amplitude)
 
     [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
     [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
@@ -684,9 +699,9 @@ for freq in frequencies:
     plt.gca().set_aspect('equal')
     plt.xlabel('x (μm)')
     plt.ylabel('y (μm)')
+
     # ensure that the height of the colobar matches that of the plot
     from mpl_toolkits.axes_grid1 import make_axes_locatable
-
     divider = make_axes_locatable(plt.gca())
     cax = divider.append_axes("right", size="5%", pad=0.05)
     plt.colorbar(cax=cax)

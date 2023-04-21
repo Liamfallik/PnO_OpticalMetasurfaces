@@ -696,6 +696,9 @@ efficiency = []
 FWHM = []
 for freq in frequencies:
     # simulate intensities
+
+    src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
+    source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
     sim = mp.Simulation(resolution=resolution,
                         cell_size=mp.Vector3(Sx, Sy2),
                         boundary_layers=pml_layers,
@@ -719,9 +722,13 @@ for freq in frequencies:
     scattered_field = sim.get_dft_array(near_fields, mp.Ez, 0)
     # near_field = sim.get_dft_array(near_fields, mp.Ez, 0)
 
+    print(focussed_field)
+
     focussed_amplitude = np.abs(focussed_field) ** 2
     scattered_amplitude = np.abs(scattered_field) ** 2
     before_amplitude = np.abs(before_field) ** 2
+
+    print(focussed_amplitude)
 
     [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
     [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
@@ -734,14 +741,15 @@ for freq in frequencies:
     plt.gca().set_aspect('equal')
     plt.xlabel('x (μm)')
     plt.ylabel('y (μm)')
+
     # ensure that the height of the colobar matches that of the plot
     from mpl_toolkits.axes_grid1 import make_axes_locatable
-
     divider = make_axes_locatable(plt.gca())
     cax = divider.append_axes("right", size="5%", pad=0.05)
     plt.colorbar(cax=cax)
     plt.tight_layout()
-    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(int(100/freq) / 100) + ".png"
+    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(
+        int(100 / freq) / 100) + ".png"
     plt.savefig(fileName)
 
     # plot intensity around focal point
@@ -749,15 +757,17 @@ for freq in frequencies:
     plt.plot(xi, focussed_amplitude, 'bo-')
     plt.xlabel("x (μm)")
     plt.ylabel("field amplitude")
-    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(int(100/freq) / 100) + ".png"
+    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(
+        int(100 / freq) / 100) + ".png"
     plt.savefig(fileName)
     sendPhoto(fileName)
 
     efficiency.append(focussing_efficiency(focussed_amplitude, before_amplitude))
     FWHM.append(get_FWHM(focussed_amplitude, xi))
-    
-    np.save("./" + scriptName + "/" + scriptName_i + "/intensity_at_focus_freq" + str(int(100/freq) / 100),
+
+    np.save("./" + scriptName + "/" + scriptName_i + "/intensity_at_focus_freq" + str(int(100 / freq) / 100),
             focussed_amplitude)
+
 
 with open("./" + scriptName + "/best_result.txt", 'a') as var_file:
     var_file.write("focussing_efficiency \t" + str(efficiency) + "\n")
