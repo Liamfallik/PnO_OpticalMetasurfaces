@@ -102,7 +102,7 @@ Air = mp.Medium(index=1.0)
 num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
 design_region_height = [0.24]*num_layers # height of layer
-spacing = 5 # spacing between layers
+spacing = 4 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
 
@@ -242,7 +242,7 @@ ob_list = [FarFields]
 # ob_list = [NearRegions]
 # ob_list = []
 
-def J1(dummy=None):
+def J1(FF):
     print(FF)
     # # FF = FF[0, :, 2]
     # y_pos = -0.6
@@ -292,13 +292,13 @@ def f(v, gradient, cur_beta):
     # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
 
     if gradient.size > 0:
-        if isinstance(dJ_du[0][0], list) or isinstance(dJ_du[0][0], np.ndarray):
+        if isinstance(dJ_du[0], list) or isinstance(dJ_du[0], np.ndarray):
             gradi = [tensor_jacobian_product(mapping, 0)(
-                reshaped_v[i, :], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
+                reshaped_v[i, :], eta_i, cur_beta, dJ_du[i]
             ) for i in range(num_layers)] # backprop
         else:
             gradi = tensor_jacobian_product(mapping, 0)(
-                reshaped_v, eta_i, cur_beta, np.sum(dJ_du, axis=1)) # backprop
+                reshaped_v, eta_i, cur_beta, dJ_du) # backprop
 
         gradient[:] = np.reshape(gradi, [n])
 
