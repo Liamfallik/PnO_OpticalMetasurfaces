@@ -456,7 +456,7 @@ for sample_nr in range(num_samples):
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
 
     # Optimization
-    cur_beta = 4 # 4
+    cur_beta = 4*2**7 # 4
     beta_scale = 2 # 2
     num_betas = 7 # 6
     update_factor = 10 # 12
@@ -528,17 +528,48 @@ for sample_nr in range(num_samples):
     # animate.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animation.gif")
     # animateField.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animationField.gif")
 
-    Sy2 = 20
+    # Sy2 = 20
+    # geometry.append(mp.Block(
+    #     center=mp.Vector3(y=-(Sy2 / 2 + Sy / 2) / 2),
+    #     size=mp.Vector3(x=Sx, y=(Sy2 / 2 - Sy / 2)),
+    #     material=SiO2
+    # ))
+    space_below2 = 10  # includes PML
+    Sy2 = half_total_height * 2 + space_below
+    cell_size = mp.Vector3(Sx, Sy)
+    design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in
+                        range(num_layers)]  # SiO2
+    design_regions = [mpa.DesignRegion(
+        design_variables[i],
+        volume=mp.Volume(
+            center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(
+                design_region_height[:i]) + i * spacing + space_below / 2),
+            size=mp.Vector3(design_region_width, design_region_height[i], 0),
+        ),
+    ) for i in range(num_layers)]
+
+    # Geometry: all is design region, no fixed parts
+    geometry = [
+        mp.Block(
+            center=design_region.center, size=design_region.size, material=design_region.design_parameters
+        )
+        # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
+        #
+        # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
+        # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
+        # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
+        for design_region in design_regions
+    ]
     geometry.append(mp.Block(
-        center=mp.Vector3(y=-(Sy2 / 2 + Sy / 2) / 2),
-        size=mp.Vector3(x=Sx, y=(Sy2 / 2 - Sy / 2)),
+        center=mp.Vector3(y=space_below / 2),
+        size=mp.Vector3(x=Sx, y=spacing),
         material=SiO2
     ))
 
     # Plot fields
     for freq in frequencies:
         opt.sim = mp.Simulation(
-            cell_size=mp.Vector3(Sx, Sy2),
+            cell_size=mp.Vector3(Sx, Sy),
             boundary_layers=pml_layers,
             # k_point=kpoint,
             geometry=geometry,
