@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "Retroreflector_Test4"
+scriptName = "Retroreflector_Test4_2"
 symmetry = False # Impose symmetry around x = 0 line
 #
 # def sendNotification(message):
@@ -99,10 +99,10 @@ TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 1 # amount of layers
+num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.11]*num_layers # height of layer
-spacing = 0 # spacing between layers
+design_region_height = [0.24]*num_layers # height of layer
+spacing = 5 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
 
@@ -112,8 +112,9 @@ pml_size = 1.0 # thickness of absorbing boundary layer
 resolution = 50 # 50 --> amount of grid points per µm; needs to be > 49 for TiOx and 0.55 µm
 
 # System size
+space_below = 1.7 # includes PML
 Sx = 2 * pml_size + design_region_width + 2 * empty_space
-Sy = 2 * pml_size + half_total_height * 2 + 2
+Sy = half_total_height * 2 + space_below
 cell_size = mp.Vector3(Sx, Sy)
 
 # Frequencies
@@ -131,16 +132,16 @@ filter_radius = mpa.get_conic_radius_from_eta_e(minimum_length, eta_e)
 design_region_resolution = int(resolution) # = int(resolution)
 
 # Boundary conditions
-pml_layers = [mp.PML(pml_size)]
+pml_layers = [mp.PML(pml_size, direction=mp.X), mp.PML(pml_size, direction=mp.Y, side=1)]
 
 # Source
 fcen = frequencies[0]
 fwidth = 0.03 # 0.2
 # Set-up simulation object
 rot_angle = np.radians(45)
-mp.Vector3(y=1).rotate(mp.Vector3(z=1), -rot_angle)
-kpoint = mp.Vector3(1,1,0)
-source_center = [0, -(half_total_height + 0.4), 0] # Source 1 µm below lens
+kpoint = mp.Vector3(y=1).rotate(mp.Vector3(z=1), -rot_angle)
+# kpoint = mp.Vector3(1,1,0)
+source_center = [0, -(half_total_height - space_below / 2 + 0.4), 0] # Source 1 µm below lens
 source_size = mp.Vector3(design_region_width, 0, 0) # Source covers width of lens
 # src = mp.GaussianSource(frequency=fcen, fwidth=fwidth) # Gaussian source
 # source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
@@ -165,7 +166,7 @@ design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEA
 design_regions = [mpa.DesignRegion(
     design_variables[i],
     volume=mp.Volume(
-        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + i * spacing),
+        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + i * spacing + space_below / 2),
         size=mp.Vector3(design_region_width, design_region_height[i], 0),
     ),
 ) for i in range(num_layers)]
@@ -208,8 +209,8 @@ geometry = [
     for design_region in design_regions
     ]
 geometry.append(mp.Block(
-        center = mp.Vector3(y=(half_total_height + Sy/2) / 2),
-        size=mp.Vector3(x = Sx, y = (Sy/2 - half_total_height)),
+        center = mp.Vector3(y=space_below / 2),
+        size=mp.Vector3(x = Sx, y = spacing),
         material=SiO2
     ))
 
@@ -227,37 +228,37 @@ sim = mp.Simulation(
 )
 
 # Focus point, 7.5 µm beyond centre of lens
-focal_point = -1
-# far_x = [mp.Vector3(-1, focal_point, 0)]
-# NearRegions = [ # region from which fields at focus point will be calculated
-#     mp.Near2FarRegion(
-#         center=mp.Vector3(0, -(half_total_height + 0.4)), # 0.4 µm above lens
-#         size=mp.Vector3(design_region_width + 2*empty_space, 0), # spans design region
-#         weight=+1, # field contribution is positive (real)
-#     )
-# ]
-# FarFields = mpa.Near2FarFields(sim, NearRegions, far_x) # Far-field object
-# ob_list = [FarFields]
+focal_point = -100
+far_x = [mp.Vector3(-focal_point*np.tan(rot_angle), focal_point, 0)]
+NearRegions = [ # region from which fields at focus point will be calculated
+    mp.Near2FarRegion(
+        center=mp.Vector3(0, -(half_total_height - space_below / 2 + 0.5)), # 0.4 µm above lens
+        size=mp.Vector3(design_region_width + 2*empty_space, 0), # spans design region
+        weight=-1, # field contribution is positive (real)
+    )
+]
+FarFields = mpa.Near2FarFields(sim, NearRegions, far_x) # Far-field object
+ob_list = [FarFields]
 # ob_list = [NearRegions]
-ob_list = []
+# ob_list = []
 
 def J1(dummy=None):
-    # print(FF)
-    # FF = FF[0, :, 2]
-    y_pos = -0.6
-    xi = np.linspace(-design_region_width/2 - y_pos / np.tan(rot_angle),
-                               design_region_width/2 - y_pos / np.tan(rot_angle),
-                               design_region_width * resolution)
-    FF = [sim.get_field_point(mp.Ez, mp.Vector3(x=i, y=-half_total_height+y_pos)) for i in xi]
-
     print(FF)
+    # # FF = FF[0, :, 2]
+    # y_pos = -0.6
+    # xi = np.linspace(-design_region_width/2 - y_pos / np.tan(rot_angle),
+    #                            design_region_width/2 - y_pos / np.tan(rot_angle),
+    #                            design_region_width * resolution*5)
+    # FF = [sim.get_field_point(mp.Ez, mp.Vector3(x=i, y=-half_total_height+y_pos)) for i in xi]
+    #
+    # print(FF)
+    #
+    # ideal = np.exp(1j * 2*pi * np.sin(rot_angle) * frequencies * xi)
+    #
+    # mode_overlap = np.abs(sum(np.conjugate(FF) * ideal)) ** 2 / (sum(np.abs(FF)**2) * sum(np.abs(ideal)**2))
 
-    ideal = np.exp(1j * 2*pi * np.sin(rot_angle) * frequencies * xi)
-
-    mode_overlap = np.abs(sum(np.conjugate(FF) * ideal)) ** 2 / (sum(np.abs(FF)**2) * sum(np.abs(ideal)**2))
-
-    return mode_overlap # npa.mean(npa.abs(FF[0, :, 2]) ** 2) # only first (only point), mean of all frequencies, and third field (Ez)
-
+    # return mode_overlap #
+    return npa.mean(npa.abs(FF[0, :, 2]) ** 2) # only first (only point), mean of all frequencies, and third field (Ez)
 # Optimization object
 opt = mpa.OptimizationProblem(
     simulation=sim,
