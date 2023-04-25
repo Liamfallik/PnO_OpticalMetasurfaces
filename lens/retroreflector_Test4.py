@@ -229,7 +229,7 @@ sim = mp.Simulation(
 
 # Focus point, 7.5 µm beyond centre of lens
 focal_point = -100
-far_x = [mp.Vector3(-focal_point*np.tan(rot_angle), focal_point, 0)]
+far_x = [mp.Vector3(focal_point*np.tan(rot_angle), focal_point, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
         center=mp.Vector3(0, -(half_total_height - space_below / 2 + 0.5)), # 0.4 µm above lens
