@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "Retroreflector_Test4_2"
+scriptName = "Retroreflector_Test4_3"
 symmetry = False # Impose symmetry around x = 0 line
 #
 # def sendNotification(message):
@@ -362,34 +362,6 @@ f0s = np.zeros([num_samples, nf])
 start0 = datetime.datetime.now()
 for sample_nr in range(num_samples):
 
-    design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in
-                        range(num_layers)]  # SiO2
-    design_regions = [mpa.DesignRegion(
-        design_variables[i],
-        volume=mp.Volume(
-            center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(
-                design_region_height[:i]) + i * spacing + space_below / 2),
-            size=mp.Vector3(design_region_width, design_region_height[i], 0),
-        ),
-    ) for i in range(num_layers)]
-
-    geometry = [
-        mp.Block(
-            center=design_region.center, size=design_region.size, material=design_region.design_parameters
-        )
-        # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
-        #
-        # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
-        # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
-        # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
-        for design_region in design_regions
-    ]
-    geometry.append(mp.Block(
-        center=mp.Vector3(y=space_below / 2),
-        size=mp.Vector3(x=Sx, y=spacing),
-        material=SiO2
-    ))
-
     opt = mpa.OptimizationProblem(
         simulation=sim,
         objective_functions=[J1],
@@ -446,9 +418,9 @@ for sample_nr in range(num_samples):
 
 
     # x = np.reshape(reshaped_x, [n])# + 0.5 * (-0.5 + np.random.rand(n))
-    file_path = "x.npy"
-    with open(file_path, 'rb') as file:
-        x = np.load(file)
+    # file_path = "x.npy"
+    # with open(file_path, 'rb') as file:
+    #     x = np.load(file)
 
     if symmetry:
         for i in range(num_layers):
@@ -485,9 +457,9 @@ for sample_nr in range(num_samples):
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
 
     # Optimization
-    cur_beta = 4*2**7 # 4
+    cur_beta = 4 # 4
     beta_scale = 2 # 2
-    num_betas = 7*0 # 6
+    num_betas = 7 # 6
     update_factor = 10 # 12
     totalIterations = num_betas * update_factor
     ftol = 1e-4 # 1e-5
@@ -566,9 +538,9 @@ for sample_nr in range(num_samples):
     space_below2 = 10  # includes PML
     Sy2 = half_total_height * 2 + space_below2
     cell_size = mp.Vector3(Sx, Sy2)
-    design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in
+    design_variables2 = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in
                         range(num_layers)]  # SiO2
-    design_regions = [mpa.DesignRegion(
+    design_regions2 = [mpa.DesignRegion(
         design_variables[i],
         volume=mp.Volume(
             center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(
@@ -578,7 +550,7 @@ for sample_nr in range(num_samples):
     ) for i in range(num_layers)]
 
     # Geometry: all is design region, no fixed parts
-    geometry = [
+    geometry2 = [
         mp.Block(
             center=design_region.center, size=design_region.size, material=design_region.design_parameters
         )
@@ -589,12 +561,32 @@ for sample_nr in range(num_samples):
         # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
         for design_region in design_regions
     ]
-    geometry.append(mp.Block(
+    geometry2.append(mp.Block(
         center=mp.Vector3(y=space_below2 / 2),
         size=mp.Vector3(x=Sx, y=spacing),
         material=SiO2
     ))
-    source_center = [0, -(half_total_height - space_below2 / 2 + 0.4), 0]  # Source 1 µm below lens
+
+    sim2 = mp.Simulation(
+        cell_size=cell_size,
+        boundary_layers=pml_layers,
+        geometry=geometry2,
+        sources=source,
+        default_material=Air,  # Air
+        symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
+        resolution=resolution,
+    )
+
+    opt2 = mpa.OptimizationProblem(
+        simulation=sim2,
+        objective_functions=[J1],
+        objective_arguments=ob_list,
+        design_regions=design_regions2,
+        frequencies=frequencies,
+        maximum_run_time=2000,
+    )
+
+    source_center2 = [0, -(half_total_height - space_below2 / 2 + 0.4), 0]  # Source 1 µm below lens
     opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
 
     # Plot fields
@@ -603,7 +595,7 @@ for sample_nr in range(num_samples):
             cell_size=mp.Vector3(Sx, Sy2),
             boundary_layers=pml_layers,
             # k_point=kpoint,
-            geometry=geometry,
+            geometry=geometry2,
             sources=source,
             default_material=Air,
             symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
@@ -617,7 +609,7 @@ for sample_nr in range(num_samples):
             eig_kpoint=kpoint,
             eig_parity=mp.ODD_Z,
             size=source_size,
-            center=source_center,
+            center=source_center2,
         )]
         opt.sim.change_sources(source)
 
