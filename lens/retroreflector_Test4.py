@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "Retroreflector_Test4_3"
+scriptName = "Retroreflector_Test4_6"
 symmetry = False # Impose symmetry around x = 0 line
 #
 # def sendNotification(message):
@@ -117,6 +117,8 @@ Sx = 2 * pml_size + design_region_width + 2 * empty_space
 Sy = half_total_height * 2 + space_below
 cell_size = mp.Vector3(Sx, Sy)
 
+
+
 # Frequencies
 nf = 1 # Amount of frequencies studied
 frequencies = 1./np.linspace(0.55, 0.65, nf)
@@ -138,7 +140,7 @@ pml_layers = [mp.PML(pml_size, direction=mp.X), mp.PML(pml_size, direction=mp.Y,
 fcen = frequencies[0]
 fwidth = 0.03 # 0.2
 # Set-up simulation object
-rot_angle = np.radians(45)
+rot_angle = np.radians(15)
 kpoint = mp.Vector3(y=1).rotate(mp.Vector3(z=1), -rot_angle)
 # kpoint = mp.Vector3(1,1,0)
 source_center = [0, -(half_total_height - space_below / 2 + 0.4), 0] # Source 1 µm below lens
@@ -543,8 +545,7 @@ for sample_nr in range(num_samples):
     design_regions2 = [mpa.DesignRegion(
         design_variables[i],
         volume=mp.Volume(
-            center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(
-                design_region_height[:i]) + i * spacing + space_below2 / 2),
+            center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + i * spacing + space_below2 / 2),
             size=mp.Vector3(design_region_width, design_region_height[i], 0),
         ),
     ) for i in range(num_layers)]
@@ -559,7 +560,7 @@ for sample_nr in range(num_samples):
         # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
         # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
         # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
-        for design_region in design_regions
+        for design_region in design_regions2
     ]
     geometry2.append(mp.Block(
         center=mp.Vector3(y=space_below2 / 2),
