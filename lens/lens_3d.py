@@ -19,6 +19,98 @@ scriptName = "metalens_1layer_3d_2"
 #mp.divide_parallel_processes(16)
 
 
+def sendNotification(message):
+    token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
+    myuserid = 6297309186
+    method = '/sendMessage'
+    url = f"https://api.telegram.org/bot{token}"
+    params = {"chat_id": myuserid, "text": message}
+    try:
+        r = requests.get(url + method, params=params)
+    except:
+        print("No internet connection: couldn't send notification...")
+
+def sendPhoto(image_path):
+    token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
+    myuserid = 6297309186
+    data = {"chat_id": myuserid}
+    url = f"https://api.telegram.org/bot{token}" + "/sendPhoto"
+    with open(image_path, "rb") as image_file:
+        try:
+            ret = requests.post(url, data=data, files={"photo": image_file})
+            return ret.json()
+        except:
+            print("No internet connection: couldn't send notification...")
+
+
+def focussing_efficiency(intensity1, intensity2):
+    total_power = sum(intensity2)
+
+    center = np.argmax(intensity1)
+    length = max(np.shape(intensity1))
+
+    value = intensity1[center]
+    go = True
+    i = center + 1
+    while go and i < length:
+        new_value = intensity1[i]
+        if new_value > value:
+            zero2 = i
+            go = False
+        else:
+            value = new_value
+        i += 1
+
+    value = intensity1[center]
+    go = True
+    i = center - 1
+    while go and i >= 0:
+        new_value = intensity1[i]
+        if new_value > value:
+            zero1 = i
+            go = False
+        else:
+            value = new_value
+        i -= 1
+
+    focussed_power = sum(intensity1[zero1+1:zero2])
+
+    return focussed_power / total_power
+
+
+def get_FWHM(intensity, x):
+
+    center = np.argmax(intensity)
+    length = max(np.shape(intensity))
+
+    value = intensity[center]
+    half_max = value / 2
+    go = True
+    i = center + 1
+    while go and i < length:
+        new_value = intensity[i]
+        if new_value < half_max:
+            half_right = x[i-1] + (x[i] - x[i-1]) * (value - half_max) / (value - new_value)
+            go = False
+        else:
+            value = new_value
+        i += 1
+
+    value = intensity[center]
+    go = True
+    i = center - 1
+    while go and i >= 0:
+        new_value = intensity[i]
+        if new_value < half_max:
+            half_left = x[i+1] + (x[i] - x[i+1]) * (value - half_max) / (value - new_value)
+            go = False
+        else:
+            value = new_value
+        i -= 1
+
+    return half_right - half_left
+
+
 
 # checking if the directory demo_folder
 # exist or not.
@@ -37,8 +129,8 @@ TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-design_region_width = 9
-design_region_height = 0.25
+design_region_width = 10
+design_region_height = 0.24
 
 # Boundary conditions
 pml_size = 1
@@ -51,9 +143,9 @@ Sz = 2 * pml_size + design_region_height + 1.5
 cell_size = mp.Vector3(Sx, Sx, Sz)
 
 # Frequencies
-nf = 3  # Amount of frequencies studied
+nf = 1  # Amount of frequencies studied
 # frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
-frequencies = 1. / np.linspace(0.55, 0.65, 3)
+frequencies = [0.6] # 1. / np.linspace(0.55, 0.65, 3)
 
 # Feature size constraints
 minimum_length = 0.09  # minimum length scale (microns)
@@ -68,7 +160,7 @@ design_region_resolution = int(resolution)
 # Boundary conditions
 pml_layers = [mp.Absorber(pml_size)]
 
-fwidth = 0.1  # Relative width of frequency
+fwidth = 0.4  # Relative width of frequency
 source_center = [0, 0, -(design_region_height / 2 + 0.5)]  # Source 0.4 um below lens
 source_size = mp.Vector3(design_region_width, design_region_width, 0)  # Source covers width of lens
 srcs = [mp.GaussianSource(frequency=fcen, fwidth=fwidth) for fcen in frequencies] # Gaussian source
@@ -114,6 +206,12 @@ geometry = [
     ),
 ]
 
+geometry.append(mp.Block(
+        center = mp.Vector3(z=-(half_total_height + Sy/2) / 2),
+        size=mp.Vector3(x = Sx, y = Sx, z = (Sy/2 - half_total_height)),
+        material=SiO2
+    ))
+
 # Set-up simulation object
 kpoint = mp.Vector3()
 sim = mp.Simulation(
@@ -131,11 +229,12 @@ sim = mp.Simulation(
 far_x = [mp.Vector3(0, 0, 6)]
 NearRegions = [  # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, 0, design_region_height / 2 + 0.5),  # 0.3 um above lens
+        center=mp.Vector3(0, 0, design_region_height / 2 + 0.3),  # 0.3 um above lens
         size=mp.Vector3(design_region_width, design_region_width, 0),  # spans design region
         weight=+1,  # field contribution is positive (real)
     )
 ]
+
 FarFields = mpa.Near2FarFields(sim, NearRegions, far_x)  # Far-field object
 ob_list = [FarFields]
 
