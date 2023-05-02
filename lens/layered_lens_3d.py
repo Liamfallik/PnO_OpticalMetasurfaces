@@ -246,7 +246,7 @@ sim = mp.Simulation(
     geometry=geometry,
     sources=source,
     default_material=Air,
-    symmetries=[mp.Mirror(direction=mp.X), mp.Mirror(direction=mp.Y)] if symmetry else Nones,
+    symmetries=[mp.Mirror(direction=mp.X), mp.Mirror(direction=mp.Y)] if symmetry else None,
     resolution=resolution,
     eps_averaging=False,
 )
