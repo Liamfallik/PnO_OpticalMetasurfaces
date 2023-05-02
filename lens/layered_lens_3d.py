@@ -14,8 +14,8 @@ import random
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_2layers_3d"
-num_layers = 2
+scriptName = "metalens_3layers_3d"
+num_layers = 3
 start_from_direct = True
 symmetry = True # NOT IMPLEMENTED YET
 #mp.divide_parallel_processes(16)
@@ -295,23 +295,22 @@ def f(v, gradient, cur_beta):
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
 
-    f0, dJ_du = opt([mapping(v, eta_i, cur_beta)])  # compute objective and gradient
-    # print("gradient")
-    # print(gradient)
-    # print("f0")
-    # print(f0)
-    # print("dJ_du")
-    # print(dJ_du)
-    # print("dJ_du size")
-    # print(dJ_du.size)
-    # print("v")
-    # print(v)
-    # print("v.size")
-    # print(v.size)
+    reshaped_v = np.reshape(v, [num_layers, Nx*Ny])
+
+    f0, dJ_du = opt(
+        [mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])  # compute objective and gradient
+    # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
+
     if gradient.size > 0:
-        qsdf = tensor_jacobian_product(mapping, 0)(v, eta_i, cur_beta, np.sum(dJ_du, axis=1))  # backprop
-        # print(qsdf)
-        gradient[:] = qsdf
+        if isinstance(dJ_du[0][0], list) or isinstance(dJ_du[0][0], np.ndarray):
+            gradi = [tensor_jacobian_product(mapping, 0)(
+                reshaped_v[i, :], eta_i, cur_beta, np.sum(dJ_du[i], axis=1)
+            ) for i in range(num_layers)]  # backprop
+        else:
+            gradi = tensor_jacobian_product(mapping, 0)(
+                reshaped_v, eta_i, cur_beta, np.sum(dJ_du, axis=1))  # backprop
+
+        gradient[:] = np.reshape(gradi, [n])
 
     evaluation_history.append(f0)  # add objective function evaluation to list
 
@@ -329,7 +328,7 @@ n = Nx * Ny * num_layers # number of parameters
 seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
 np.random.seed(seed)
 # Initial guess
-reshaped_x = np.zeros([num_layers, Nx, Nx])
+reshaped_x = np.zeros([num_layers, Nx, Ny])
 if start_from_direct:
     random_perturbation = 0.5 # Something wrong with randomization
     phase0 = random.random()# (1-0.9*0.5**num_layers)
@@ -340,18 +339,26 @@ if start_from_direct:
             phase_step = int(phase * 2**num_layers)
             for i in range(num_layers):
                 if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0:
-                    reshaped_x[i, j, k] = 3.0 if (symmetry and (j != Nx // 2 and k != Ny // 2)) else 0.75
+                    reshaped_x[i, j, k] = 3.0 if (symmetry) else 0.75 #  and (j != Nx // 2 and k != Ny // 2)
                 else:
                     reshaped_x[i, j, k] = 1.0 if symmetry else 0.25
 
-    x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n))
+
     if symmetry:
-        x = symmetrize(x, Nx, Ny)
+        x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n))
+        xi = np.zeros([num_layers, Nx * Ny])
+        for i in range(num_layers):
+            xi[i, :] = symmetrize(np.reshape(reshaped_x[i, :, :], [Nx * Ny]), Nx, Ny)
+        x = np.reshape(xi, [n])
+    else:
+        x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n))
 else:
     x = np.random.rand(n)
 
 start_beta = 4 # 4
-opt.update_design([mapping(x, eta_i, start_beta)])
+reshaped_x = np.reshape(x, [num_layers, Nx*Nx])
+mapped_x = [mapping(reshaped_x[i, :], eta_i, start_beta) for i in range(num_layers)]
+opt.update_design(mapped_x)
 
 # lower and upper bounds
 lb = np.zeros(n)
@@ -363,10 +370,11 @@ plt.figure()
 opt.plot2D(output_plane=output_plane, plot_monitors_flag=True)
 plt.savefig(scriptName + "/design_XZ.png")
 
-output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(design_region_width, design_region_width, 0))
-plt.figure()
-opt.plot2D(output_plane=output_plane)
-plt.savefig(scriptName + "/design_layer1.png")
+output_planes = [mp.Volume(center=design_region.center, size=mp.Vector3(Sx, Sx, 0)) for design_region in design_regions]
+for i in range(num_layers):
+    plt.figure()
+    opt.plot2D(output_plane=output_planes[i])
+    plt.savefig(scriptName + "/design_layer" + str(i) + ".png")
 
 cur_beta = start_beta
 beta_scale = 4
@@ -420,7 +428,10 @@ for iters in range(num_betas):
 cur_beta = cur_beta / beta_scale
 
 # Check intensities in optimal design
-f0, dJ_du = opt([mapping(x, eta_i, cur_beta)], need_gradient=False)
+reshaped_x = np.reshape(x, [num_layers, Nx*Ny])
+mapped_x = [mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)]
+
+f0, dJ_du = opt(mapped_x, need_gradient=False)
 frequencies = opt.frequencies
 
 intensities = np.abs(opt.get_objective_arguments()[0][0, :, 0])
@@ -444,8 +455,10 @@ plt.ylabel("Relative intensity at focal point")
 plt.savefig("./" + scriptName + "/objective.png")
 
 # Plot final design
-opt.update_design([mapping(x, eta_i, cur_beta)])
-opt.plot2D(output_plane=output_plane)
-plt.savefig("./" + scriptName + "/finalDesign.png")
+opt.update_design(mapped_x)
+for i in range(num_layers):
+    plt.figure()
+    opt.plot2D(output_plane=output_planes[i])
+    plt.savefig(scriptName + "/final_design_layer" + str(i) + ".png")
 
 # sendNotification("Simulation finished")
