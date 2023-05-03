@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "Retroreflector_Test4_6"
+scriptName = "Retroreflector_Test4_8" # Source 15° Multiple points at monitor
 symmetry = False # Impose symmetry around x = 0 line
 #
 # def sendNotification(message):
@@ -230,16 +230,29 @@ sim = mp.Simulation(
 )
 
 # Focus point, 7.5 µm beyond centre of lens
-focal_point = -100
-far_x = [mp.Vector3(focal_point*np.tan(rot_angle), focal_point, 0)]
+
+focal_point_y = -100
+
+focal_points = []
+cor_x = (focal_point_y * np.tan(rot_angle)) - ((design_region_width + 2 * empty_space) / 2)
+
+for i in range(10):
+    focal_points.append(mp.Vector3(cor_x, focal_point_y, 0))
+    cor_x = cor_x + ((design_region_width + 2 * empty_space) / 10)
+
+# focal_points = [mp.Vector3(np.linspace((focal_point_y * np.tan(rot_angle)) -
+#                 ((design_region_width + 2 * empty_space) / 2), (focal_point_y * np.tan(rot_angle)) +
+#                ((design_region_width + 2 * empty_space) / 2), 10), focal_point_y, 0)]
+
+# far_x = [mp.Vector3(focal_point*np.tan(rot_angle), focal_point, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
         center=mp.Vector3(0, -(half_total_height - space_below / 2 + 0.5)), # 0.4 µm above lens
         size=mp.Vector3(design_region_width + 2*empty_space, 0), # spans design region
-        weight=-1, # field contribution is positive (real)
+        weight= -1, # field contribution is positive (real)
     )
 ]
-FarFields = mpa.Near2FarFields(sim, NearRegions, far_x) # Far-field object
+FarFields = mpa.Near2FarFields(sim, NearRegions, focal_points) # Far-field object
 ob_list = [FarFields]
 # ob_list = [NearRegions]
 # ob_list = []
@@ -351,7 +364,7 @@ with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
     var_file.write("resolution \t" + str(resolution) + "\n")
     var_file.write("wavelengths \t" + str(1/frequencies) + "\n")
     var_file.write("fwidth \t" + str(fwidth) + "\n")
-    var_file.write("focal_point \t" + str(focal_point) + "\n")
+    var_file.write("focal_point \t" + str(focal_points) + "\n")
     var_file.write("seed \t%d" % seed + "\n")
 
 num_samples = 10
@@ -672,7 +685,7 @@ sim = mp.Simulation(resolution=resolution,
                     sources=source,
                     symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
 
-near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
+near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point_y),
                                         size=mp.Vector3(x=design_region_width)) for freq in frequencies]
 near_fields = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
                                   size=mp.Vector3(x=Sx, y=Sy2)) for freq in frequencies]
