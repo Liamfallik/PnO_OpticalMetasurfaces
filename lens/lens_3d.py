@@ -296,18 +296,7 @@ def f(v, gradient, cur_beta):
     cur_iter[0] += 1
 
     f0, dJ_du = opt([mapping(v, eta_i, cur_beta)])  # compute objective and gradient
-    # print("gradient")
-    # print(gradient)
-    # print("f0")
-    # print(f0)
-    # print("dJ_du")
-    # print(dJ_du)
-    # print("dJ_du size")
-    # print(dJ_du.size)
-    # print("v")
-    # print(v)
-    # print("v.size")
-    # print(v.size)
+
     if gradient.size > 0:
         qsdf = tensor_jacobian_product(mapping, 0)(v, eta_i, cur_beta, np.sum(dJ_du, axis=1))  # backprop
         # print(qsdf)
@@ -317,8 +306,25 @@ def f(v, gradient, cur_beta):
 
     np.save("./" + scriptName + "/x_" + str(cur_iter[0]), x)
 
-    opt.plot2D(output_plane=output_plane)
-    plt.savefig(fname=scriptName + "/" + str(cur_iter[0]) + ".png")
+    output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(design_region_width, design_region_width, 0))
+    plt.figure() # Plot current design
+    # ax = plt.gca()
+
+    opt.update_design([mapping(v, eta_i, cur_beta)])
+    opt.plot2D(
+        False,
+        # ax=ax,
+        plot_sources_flag=False,
+        plot_monitors_flag=False,
+        plot_boundaries_flag=False,
+        output_plane=output_plane
+    )
+    circ = Circle((2, 2), minimum_length / 2)
+    ax.add_patch(circ)
+    ax.axis("off")
+    plt.savefig("./" + scriptName + "/" + "/img_{" + str(cur_iter[0]) + "}.png")
+
+    plt.close()
 
     return f0
 
@@ -435,7 +441,7 @@ plt.savefig("./" + scriptName + "/intensities.png")
 
 np.save("./" + scriptName + "/x", x)
 
-# plot evaluation history	
+# plot evaluation history
 plt.figure()
 plt.plot([i for i in range(len(evaluation_history))], evaluation_history, "-o")
 plt.grid(True)
