@@ -14,7 +14,7 @@ import random
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_1layer_3d_4"
+scriptName = "metalens_1layer_3d_3"
 num_layers = 1
 start_from_direct = True
 symmetry = True # NOT IMPLEMENTED YET
@@ -150,7 +150,7 @@ half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing /
 
 # Boundary conditions
 pml_size = 0.5
-resolution = 15 #50
+resolution = 50 #50
 
 # System size
 Sx = 2 * pml_size + design_region_width
@@ -159,8 +159,9 @@ cell_size = mp.Vector3(Sx, Sx, Sz)
 
 # Frequencies
 nf = 1  # Amount of frequencies studied
+freq = 1/0.6
 # frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
-frequencies = np.array([1/0.6]) # 1. / np.linspace(0.55, 0.65, 3)
+frequencies = np.array([freq]) # 1. / np.linspace(0.55, 0.65, 3)
 
 # Feature size constraints
 minimum_length = 0.09  # minimum length scale (microns)
@@ -181,6 +182,7 @@ source_center = [0, 0, source_pos] # Source 0.3 µm below lens
 source_size = mp.Vector3(design_region_width, design_region_width, 0)  # Source covers width of lens
 srcs = [mp.GaussianSource(frequency=fcen, fwidth=fwidth) for fcen in frequencies] # Gaussian source
 source = [mp.Source(src, component=mp.Ex, size=source_size, center=source_center) for src in srcs]
+
 
 # Amount of variables
 Nx = int(design_region_resolution * design_region_width)
@@ -348,12 +350,12 @@ def f(v, gradient, cur_beta):
 algorithm = nlopt.LD_MMA
 n = Nx * Ny * num_layers # number of parameters
 
-seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
+seed = 240 # make sure starting conditions are random, but always the same. Change seed to chKange starting conditions
 np.random.seed(seed)
 # Initial guess
 reshaped_x = np.zeros([num_layers, Nx, Ny])
 if start_from_direct:
-    random_perturbation = 0.5 # Something wrong with randomization
+    random_perturbation = 0.5*0 # Something wrong with randomization
     phase0 = random.random()# (1-0.9*0.5**num_layers)
     for k in range(Ny//2, Ny):
         for j in range(Nx//2, Nx):
@@ -399,7 +401,7 @@ for i in range(num_layers):
     opt.plot2D(output_plane=output_planes[i])
     plt.savefig(scriptName + "/design_layer" + str(i) + ".png")
 
-cur_beta = start_beta * 2**6
+cur_beta = start_beta * 2**7
 beta_scale = 4
 num_betas = 3*0 #6
 update_factor = 10 #20
@@ -488,6 +490,11 @@ if mp.am_really_master():
         opt.plot2D(output_plane=output_planes[i])
         plt.savefig(scriptName + "/final_design_layer" + str(i) + ".png")
 
+
+with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
+    var_file.write("f0 \t" + str(f0) + "\n")
+    var_file.write("best_design \t" + str(x) + "\n")
+
 # Field plot
 Sz2 = 16
 geometry.append(mp.Block(
@@ -497,7 +504,7 @@ geometry.append(mp.Block(
 ))
 
 # Plot fields
-opt.sim = mp.Simulation(
+sim = mp.Simulation(
     cell_size=mp.Vector3(Sx, Sx, Sz2),
     boundary_layers=pml_layers,
     # k_point=kpoint,
@@ -509,7 +516,19 @@ opt.sim = mp.Simulation(
     resolution=resolution,
 )
 
-opt.sim.run(until=200)
+near_fields_focus = sim.add_dft_fields([mp.Ex], freq, 0, 1, center=mp.Vector3(z=focal_point),
+                                           size=mp.Vector3(x=design_region_width, y=design_region_width))
+near_fields_focus_line = sim.add_dft_fields([mp.Ex], freq, 0, 1, center=mp.Vector3(z=focal_point),
+                                           size=mp.Vector3(x=design_region_width))
+near_fields_before = sim.add_dft_fields([mp.Ex], freq, 0, 1,
+                                            center=mp.Vector3(z=-(-half_total_height + source_pos) / 2),
+                                            size=mp.Vector3(x=design_region_width, y=design_region_width))
+near_fields = sim.add_dft_fields([mp.Ex], freq, 0, 1, center=mp.Vector3(),
+                                    size=mp.Vector3(x=Sx, z=Sz2))
+
+
+
+sim.run(until=200)
 
 if mp.am_really_master():
     plt.figure()#figsize=(Sx, Sz2))
@@ -519,16 +538,112 @@ if mp.am_really_master():
     #             fields=mp.Ex,
     #             output_plane=output_plane)
     ax = plt.gca()
-    opt.sim.plot2D(
+
+
+    sim.plot2D(
         # False,
         ax=ax,
         # plot_sources_flag=False,
-        # plot_monitors_flag=False,
+        plot_monitors_flag=False,
         # plot_boundaries_flag=False,
         output_plane=output_plane,
         fields=mp.Ex
     )
     fileName = "./" + scriptName + "/field.png"
     plt.savefig(fileName)
+
+    focussed_field = sim.get_dft_array(near_fields_focus, mp.Ex, 0)
+    focussed_field_line = sim.get_dft_array(near_fields_focus_line, mp.Ex, 0)
+    before_field = sim.get_dft_array(near_fields_before, mp.Ex, 0)
+    scattered_field = sim.get_dft_array(near_fields, mp.Ex, 0)
+    # near_field = sim.get_dft_array(near_fields, mp.Ex, 0)
+
+    print(focussed_field_line)
+    focussed_amplitude = np.abs(focussed_field) ** 2
+    focussed_amplitude_line = np.abs(focussed_field_line) ** 2
+    scattered_amplitude = np.abs(scattered_field) ** 2
+    before_amplitude = np.abs(before_field) ** 2
+
+    [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
+    [xk, yk, zk, wk] = sim.get_array_metadata(dft_cell=near_fields_focus_line)
+    [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
+
+    # plot intensity XZ
+    plt.figure(dpi=150)
+    plt.pcolormesh(xj, zj, np.rot90(np.rot90(np.rot90(scattered_amplitude))), cmap='inferno', shading='gouraud',
+                   vmin=0,
+                   vmax=scattered_amplitude.max())
+    plt.gca().set_aspect('equal')
+    plt.xlabel('x (μm)')
+    plt.ylabel('z (μm)')
+
+    # ensure that the height of the colobar matches that of the plot
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    divider = make_axes_locatable(plt.gca())
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(cax=cax)
+    plt.tight_layout()
+    fileName = f"./" + scriptName + "/intensityMapXZ" + ".png"
+    plt.savefig(fileName)
+
+    # plot intensity XY focal
+    plt.figure(dpi=150)
+    plt.pcolormesh(xi, yi, np.rot90(np.rot90(np.rot90(focussed_amplitude))), cmap='inferno', shading='gouraud',
+                   vmin=0,
+                   vmax=focussed_amplitude.max())
+    plt.gca().set_aspect('equal')
+    plt.xlabel('x (μm)')
+    plt.ylabel('y (μm)')
+
+    # ensure that the height of the colobar matches that of the plot
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    divider = make_axes_locatable(plt.gca())
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(cax=cax)
+    plt.tight_layout()
+    fileName = f"./" + scriptName + "/intensityFocusMapXY" + ".png"
+    plt.savefig(fileName)
+
+    # plot intensity XY before
+    plt.figure(dpi=150)
+    plt.pcolormesh(xi, yi, np.rot90(np.rot90(np.rot90(before_amplitude))), cmap='inferno', shading='gouraud',
+                   vmin=0,
+                   vmax=before_amplitude.max())
+    plt.gca().set_aspect('equal')
+    plt.xlabel('x (μm)')
+    plt.ylabel('y (μm)')
+
+    # ensure that the height of the colobar matches that of the plot
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    divider = make_axes_locatable(plt.gca())
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    plt.colorbar(cax=cax)
+    plt.tight_layout()
+    fileName = f"./" + scriptName + "/intensityMapXY" + ".png"
+    plt.savefig(fileName)
+
+    # plot intensity around focal point
+    plt.figure()
+    plt.plot(xk, focussed_amplitude_line, 'bo-')
+    plt.xlabel("x (μm)")
+    plt.ylabel("field amplitude")
+    fileName = f"./" + scriptName + "/intensityOverLine_atFocalPoint.png"
+    plt.savefig(fileName)
+    sendPhoto(fileName)
+    # print(focussed_amplitude_line)
+    efficiency = focussing_efficiency(focussed_amplitude_line, focussed_amplitude_line)
+    FWHM = get_FWHM(focussed_amplitude_line, xk)
+
+
+    np.save("./" + scriptName + "/intensity_at_focus",
+            focussed_amplitude_line)
+
+    with open("./" + scriptName + "/best_result.txt", 'a') as var_file:
+        var_file.write("focussing_efficiency \t" + str(efficiency) + "\n")
+        var_file.write("FWHM \t" + str(FWHM) + "\n")
+        var_file.write("run_time \t" + str(datetime.datetime.now() - start) + "\n")
 
     sendNotification("Simulation finished")
