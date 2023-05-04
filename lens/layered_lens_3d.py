@@ -14,7 +14,7 @@ import random
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_1layer_3d_3"
+scriptName = "metalens_3d_1layer"
 num_layers = 1
 start_from_direct = True
 symmetry = True # NOT IMPLEMENTED YET
@@ -355,7 +355,7 @@ np.random.seed(seed)
 # Initial guess
 reshaped_x = np.zeros([num_layers, Nx, Ny])
 if start_from_direct:
-    random_perturbation = 0.5*0 # Something wrong with randomization
+    random_perturbation = 0.5 # Something wrong with randomization
     phase0 = random.random()# (1-0.9*0.5**num_layers)
     for k in range(Ny//2, Ny):
         for j in range(Nx//2, Nx):
@@ -401,12 +401,12 @@ for i in range(num_layers):
     opt.plot2D(output_plane=output_planes[i])
     plt.savefig(scriptName + "/design_layer" + str(i) + ".png")
 
-cur_beta = start_beta * 2**7
+cur_beta = start_beta
 beta_scale = 4
-num_betas = 3*0 #6
+num_betas = 3 #6
 update_factor = 10 #20
 totalIterations = num_betas * update_factor
-ftol = 1e-2
+ftol = 1e-3
 start = datetime.datetime.now()
 
 
