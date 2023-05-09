@@ -14,10 +14,11 @@ import random
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_3d_1layer"
+scriptName = "metalens_3d_1layer_test"
 num_layers = 1
 start_from_direct = True
-symmetry = True # NOT IMPLEMENTED YET
+direct_design = False
+symmetry = False # NOT IMPLEMENTED YET
 #mp.divide_parallel_processes(16)
 
 
@@ -133,7 +134,7 @@ if not os.path.exists("./" + scriptName):
     # then create it.
     os.makedirs("./" + scriptName)
 
-mp.verbosity(0)  # amount of info printed during simulation
+mp.verbosity(1)  # amount of info printed during simulation
 
 # Materials
 Si = mp.Medium(index=3.4)
@@ -149,7 +150,7 @@ spacing = 0
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 
 # Boundary conditions
-pml_size = 0.5
+pml_size = 0.3
 resolution = 50 #50
 
 # System size
@@ -221,8 +222,8 @@ def mapping(x, eta, beta):
     projected_field = mpa.tanh_projection(filtered_field, beta, eta)  # Make binary
 
     # symmetry
-    if symmetry:
-        projected_field = symmetrize(projected_field, Nx, Ny)
+    # if symmetry:
+    #     projected_field = symmetrize(projected_field, Nx, Ny)
 
     # interpolate to actual materials
     return projected_field.flatten()
@@ -339,8 +340,6 @@ def f(v, gradient, cur_beta):
             ax.axis("off")
             plt.savefig("./" + scriptName + "/layer" + str(i) + "_img_{" + str(cur_iter[0]) + "}.png")
 
-        sendNotification('I am the master')
-    sendNotification('We are the servants')
 
     plt.close()
 
@@ -355,7 +354,10 @@ np.random.seed(seed)
 # Initial guess
 reshaped_x = np.zeros([num_layers, Nx, Ny])
 if start_from_direct:
-    random_perturbation = 0.5 # Something wrong with randomization
+    if direct_design:
+        random_perturbation = 0
+    else:
+        random_perturbation = 0.5  # Something wrong with randomization
     phase0 = random.random()# (1-0.9*0.5**num_layers)
     for k in range(Ny//2, Ny):
         for j in range(Nx//2, Nx):
@@ -364,9 +366,21 @@ if start_from_direct:
             phase_step = int(phase * 2**num_layers)
             for i in range(num_layers):
                 if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0:
-                    reshaped_x[i, j, k] = 3.0 if (symmetry) else 0.75 #  and (j != Nx // 2 and k != Ny // 2)
+                    if symmetry:
+                        reshaped_x[i, j, k] = 3.0 #  and (j != Nx // 2 and k != Ny // 2)
+                    else:
+                        reshaped_x[i, j, k] = 0.75
+                        reshaped_x[i, -j, k] = 0.75
+                        reshaped_x[i, j, -k] = 0.75
+                        reshaped_x[i, -j, -k] = 0.75
                 else:
-                    reshaped_x[i, j, k] = 1.0 if symmetry else 0.25
+                    if symmetry:
+                        reshaped_x[i, j, k] = 1.0
+                    else:
+                        reshaped_x[i, j, k] = 0.25
+                        reshaped_x[i, -j, k] = 0.25
+                        reshaped_x[i, j, -k] = 0.25
+                        reshaped_x[i, -j, -k] = 0.25
 
 
     if symmetry:
@@ -402,11 +416,16 @@ for i in range(num_layers):
     plt.savefig(scriptName + "/design_layer" + str(i) + ".png")
 
 cur_beta = start_beta
+if direct_design:
+    cur_beta = cur_beta * 2 ** 7
 beta_scale = 4
-num_betas = 3 #6
+if direct_design:
+    num_betas = 0
+else:
+    num_betas = 3 #6
 update_factor = 10 #20
 totalIterations = num_betas * update_factor
-ftol = 1e-3
+ftol = 1e-5
 start = datetime.datetime.now()
 
 
@@ -465,6 +484,7 @@ frequencies = opt.frequencies
 intensities = np.abs(opt.get_objective_arguments()[0][0, :, 0])
 
 if mp.am_really_master():
+    print("start plotting...")
     # Plot intensities
     plt.figure()
     plt.plot(1 / frequencies, intensities, "-o")
@@ -472,16 +492,19 @@ if mp.am_really_master():
     plt.xlabel("Wavelength (microns)")
     plt.ylabel("|Ez|^2 Intensities")
     plt.savefig("./" + scriptName + "/intensities.png")
+    print("end plotting...")
 
     np.save("./" + scriptName + "/x", x)
 
     # plot evaluation history
+    print("start plotting...")
     plt.figure()
     plt.plot([i for i in range(len(evaluation_history))], evaluation_history, "-o")
     plt.grid(True)
     plt.xlabel("Iteration")
     plt.ylabel("Relative intensity at focal point")
     plt.savefig("./" + scriptName + "/objective.png")
+    print("end plotting...")
 
     # Plot final design
     opt.update_design(mapped_x)
@@ -529,17 +552,47 @@ near_fields = sim.add_dft_fields([mp.Ex], freq, 0, 1, center=mp.Vector3(),
 
 
 sim.run(until=200)
+print(1)
 
 if mp.am_really_master():
-    plt.figure()#figsize=(Sx, Sz2))
     output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(Sx, 0, Sz2))
+
+    print(2)
+
+    focussed_field = sim.get_dft_array(near_fields_focus, mp.Ex, 0)
+    focussed_field_line = sim.get_dft_array(near_fields_focus_line, mp.Ex, 0)
+    before_field = sim.get_dft_array(near_fields_before, mp.Ex, 0)
+    scattered_field = sim.get_dft_array(near_fields, mp.Ex, 0)
+    # near_field = sim.get_dft_array(near_fields, mp.Ex, 0)
+
+    print(3)
+
+    print(focussed_field_line)
+    focussed_amplitude = np.abs(focussed_field) ** 2
+    focussed_amplitude_line = np.abs(focussed_field_line) ** 2
+    scattered_amplitude = np.abs(scattered_field) ** 2
+    before_amplitude = np.abs(before_field) ** 2
+
+
+    np.save("./" + scriptName + "/intensity_at_focus_line",
+            focussed_amplitude_line)
+    np.save("./" + scriptName + "/intensity_at_focus",
+            focussed_amplitude)
+    np.save("./" + scriptName + "/intensity_before lens",
+            before_amplitude)
+    np.save("./" + scriptName + "/intensity_XZ",
+            scattered_amplitude)
+
+
+    print("start plotting...")
+    plt.figure()#figsize=(Sx, Sz2))
     # opt.sim.plot2D(
     #             False,
     #             fields=mp.Ex,
     #             output_plane=output_plane)
     ax = plt.gca()
 
-
+    print(4)
     sim.plot2D(
         # False,
         ax=ax,
@@ -550,25 +603,16 @@ if mp.am_really_master():
         fields=mp.Ex
     )
     fileName = "./" + scriptName + "/field.png"
+    print(5)
     plt.savefig(fileName)
-
-    focussed_field = sim.get_dft_array(near_fields_focus, mp.Ex, 0)
-    focussed_field_line = sim.get_dft_array(near_fields_focus_line, mp.Ex, 0)
-    before_field = sim.get_dft_array(near_fields_before, mp.Ex, 0)
-    scattered_field = sim.get_dft_array(near_fields, mp.Ex, 0)
-    # near_field = sim.get_dft_array(near_fields, mp.Ex, 0)
-
-    print(focussed_field_line)
-    focussed_amplitude = np.abs(focussed_field) ** 2
-    focussed_amplitude_line = np.abs(focussed_field_line) ** 2
-    scattered_amplitude = np.abs(scattered_field) ** 2
-    before_amplitude = np.abs(before_field) ** 2
+    print("end plotting...")
 
     [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
     [xk, yk, zk, wk] = sim.get_array_metadata(dft_cell=near_fields_focus_line)
     [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
 
     # plot intensity XZ
+    print("start plotting...")
     plt.figure(dpi=150)
     plt.pcolormesh(xj, zj, np.rot90(np.rot90(np.rot90(scattered_amplitude))), cmap='inferno', shading='gouraud',
                    vmin=0,
@@ -586,8 +630,10 @@ if mp.am_really_master():
     plt.tight_layout()
     fileName = f"./" + scriptName + "/intensityMapXZ" + ".png"
     plt.savefig(fileName)
+    print("end plotting...")
 
     # plot intensity XY focal
+    print("start plotting...")
     plt.figure(dpi=150)
     plt.pcolormesh(xi, yi, np.rot90(np.rot90(np.rot90(focussed_amplitude))), cmap='inferno', shading='gouraud',
                    vmin=0,
@@ -605,8 +651,10 @@ if mp.am_really_master():
     plt.tight_layout()
     fileName = f"./" + scriptName + "/intensityFocusMapXY" + ".png"
     plt.savefig(fileName)
+    print("end plotting...")
 
     # plot intensity XY before
+    print("start plotting...")
     plt.figure(dpi=150)
     plt.pcolormesh(xi, yi, np.rot90(np.rot90(np.rot90(before_amplitude))), cmap='inferno', shading='gouraud',
                    vmin=0,
@@ -624,22 +672,24 @@ if mp.am_really_master():
     plt.tight_layout()
     fileName = f"./" + scriptName + "/intensityMapXY" + ".png"
     plt.savefig(fileName)
+    print("end plotting...")
 
     # plot intensity around focal point
+    print("start plotting...")
     plt.figure()
     plt.plot(xk, focussed_amplitude_line, 'bo-')
     plt.xlabel("x (μm)")
     plt.ylabel("field amplitude")
     fileName = f"./" + scriptName + "/intensityOverLine_atFocalPoint.png"
     plt.savefig(fileName)
+    print("end plotting...")
     sendPhoto(fileName)
     # print(focussed_amplitude_line)
     efficiency = focussing_efficiency(focussed_amplitude_line, focussed_amplitude_line)
     FWHM = get_FWHM(focussed_amplitude_line, xk)
 
 
-    np.save("./" + scriptName + "/intensity_at_focus",
-            focussed_amplitude_line)
+
 
     with open("./" + scriptName + "/best_result.txt", 'a') as var_file:
         var_file.write("focussing_efficiency \t" + str(efficiency) + "\n")
