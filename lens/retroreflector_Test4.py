@@ -317,6 +317,7 @@ def f(v, gradient, cur_beta):
 
         gradient[:] = np.reshape(gradi, [n])
 
+
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
 
@@ -436,6 +437,7 @@ for sample_nr in range(num_samples):
     # file_path = "x.npy"
     # with open(file_path, 'rb') as file:
     #     x = np.load(file)
+
 
     if symmetry:
         for i in range(num_layers):
