@@ -14,11 +14,13 @@ import random
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_3d_1layer_test"
+scriptName = "metalens_3d_1layer_test3"
 num_layers = 1
 start_from_direct = True
 direct_design = False
-symmetry = False # NOT IMPLEMENTED YET
+symmetry = True
+exponential_thickness = False # if False: uniform thickness
+
 #mp.divide_parallel_processes(16)
 
 
@@ -145,7 +147,12 @@ Air = mp.Medium(index=1.0)
 
 # Dimensions
 design_region_width = 10
-design_region_height = [0.48 / (num_layers + 1)]*num_layers
+if exponential_thickness:
+    design_region_height = []
+    for i in num_layers:
+        design_region_height.append(0.24 / 2**i)
+else:
+    design_region_height = [0.48 / (num_layers + 1)]*num_layers
 spacing = 0
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 
@@ -177,7 +184,7 @@ design_region_resolution = int(resolution)
 # Boundary conditions
 pml_layers = [mp.Absorber(pml_size)]
 
-fwidth = 0.4  # Relative width of frequency
+fwidth = 0.4 # Relative width of frequency
 source_pos = -(half_total_height + 0.3)
 source_center = [0, 0, source_pos] # Source 0.3 µm below lens
 source_size = mp.Vector3(design_region_width, design_region_width, 0)  # Source covers width of lens
@@ -250,7 +257,7 @@ sim = mp.Simulation(
     geometry=geometry,
     sources=source,
     default_material=Air,
-    # symmetries=[mp.Mirror(direction=mp.X), mp.Mirror(direction=mp.Y)] if symmetry else None,
+    symmetries=[mp.Mirror(direction=mp.X, phase=-1), mp.Mirror(direction=mp.Y)] if symmetry else None,
     # symmetries=[mp.Mirror(direction=mp.Y)] if symmetry else None,
     resolution=resolution,
     eps_averaging=False,
@@ -289,7 +296,7 @@ opt = mpa.OptimizationProblem(
 # Gradient
 evaluation_history = []  # Keep track of objective function evaluations
 cur_iter = [0]  # Iteration
-
+# v2 = [None]
 
 def f(v, gradient, cur_beta):
     if cur_iter[0] != 0:
@@ -305,7 +312,7 @@ def f(v, gradient, cur_beta):
     f0, dJ_du = opt(
         [mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])  # compute objective and gradient
     # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
-
+    # print(dJ_du)
     if gradient.size > 0:
         if isinstance(dJ_du[0], list) or isinstance(dJ_du[0], np.ndarray):
             gradi = [tensor_jacobian_product(mapping, 0)(
@@ -317,6 +324,10 @@ def f(v, gradient, cur_beta):
 
         gradient[:] = np.reshape(gradi, [n])
 
+    # if v2[0] is not None:
+    #     print(v2 - v)
+    # v2[:] = v
+    # print(gradient)
     evaluation_history.append(f0)  # add objective function evaluation to list
 
     np.save("./" + scriptName + "/x_" + str(cur_iter[0]), x)
@@ -352,49 +363,49 @@ n = Nx * Ny * num_layers # number of parameters
 seed = 240 # make sure starting conditions are random, but always the same. Change seed to chKange starting conditions
 np.random.seed(seed)
 # Initial guess
-reshaped_x = np.zeros([num_layers, Nx, Ny])
-if start_from_direct:
+reshaped_x = 0.5 * np.ones([num_layers, Nx, Ny])
+if start_from_direct: # make the direct design
     if direct_design:
         random_perturbation = 0
     else:
-        random_perturbation = 0.5  # Something wrong with randomization
-    phase0 = random.random()# (1-0.9*0.5**num_layers)
+        random_perturbation = 0.5  # randomization added afterwards
+    phase0 = random.random()# reference phase
     for k in range(Ny//2, Ny):
         for j in range(Nx//2, Nx):
             phase = (phase0 - np.sqrt(focal_point**2 + ((j - Nx//2) / design_region_resolution)**2 +
-                                      ((k - Ny//2) / design_region_resolution)**2) * frequencies[nf // 2]) % 1
-            phase_step = int(phase * 2**num_layers)
+                                      ((k - Ny//2) / design_region_resolution)**2) * frequencies[nf // 2]) % 1 # calculate required phase
+            if exponential_thickness:
+                phase_step = int(phase * 2**num_layers) # assign phase to certain integer number (from 1 to max number of combinations)
+            else:
+                phase_step = int(phase * (num_layers + 1)) # assign phase to certain integer number (from 1 to max number of combinations)
             for i in range(num_layers):
-                if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0:
-                    if symmetry:
-                        reshaped_x[i, j, k] = 3.0 #  and (j != Nx // 2 and k != Ny // 2)
-                    else:
+                if exponential_thickness:
+                    if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0: # determines whether layer is TiOx or SiO2 for exp thick (binary coding)
                         reshaped_x[i, j, k] = 0.75
-                        reshaped_x[i, -j, k] = 0.75
-                        reshaped_x[i, j, -k] = 0.75
-                        reshaped_x[i, -j, -k] = 0.75
-                else:
-                    if symmetry:
-                        reshaped_x[i, j, k] = 1.0
                     else:
                         reshaped_x[i, j, k] = 0.25
-                        reshaped_x[i, -j, k] = 0.25
-                        reshaped_x[i, j, -k] = 0.25
-                        reshaped_x[i, -j, -k] = 0.25
+                else:
+                    if phase_step > i: # determines whether layer is TiOx or SiO2 for uni thick (normal counting)
+                        reshaped_x[i, j, k] = 0.75
+                    else:
+                        reshaped_x[i, j, k] = 0.25
+                reshaped_x[i, -j, k] = reshaped_x[i, j, k]
+                reshaped_x[i, j, -k] = reshaped_x[i, j, k]
+                reshaped_x[i, -j, -k] = reshaped_x[i, j, k]
 
 
     if symmetry:
-        x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n))
+        x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n)) # add randomization
         xi = np.zeros([num_layers, Nx * Ny])
         for i in range(num_layers):
-            xi[i, :] = symmetrize(np.reshape(reshaped_x[i, :, :], [Nx * Ny]), Nx, Ny)
+            xi[i, :] = symmetrize(np.reshape(reshaped_x[i, :, :], [Nx * Ny]), Nx, Ny) # symmetrize (over x and y axes)
         x = np.reshape(xi, [n])
-    else:
-        x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n))
-else:
-    x = np.random.rand(n)
+    else: # not symmetric
+        x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n)) # add randomization
+else: # don't start from direct design
+    x = np.random.rand(n) # give a random starting design
 
-start_beta = 4 # 4
+start_beta = 128 # 4
 reshaped_x = np.reshape(x, [num_layers, Nx*Nx])
 mapped_x = [mapping(reshaped_x[i, :], eta_i, start_beta) for i in range(num_layers)]
 opt.update_design(mapped_x)
@@ -404,7 +415,7 @@ lb = np.zeros(n)
 ub = np.ones(n)
 
 print("plot")
-output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(Sx, 0, 10))
+output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(Sx, 0, Sz))
 plt.figure()
 opt.plot2D(output_plane=output_plane, plot_monitors_flag=True)
 plt.savefig(scriptName + "/design_XZ.png")
@@ -418,14 +429,14 @@ for i in range(num_layers):
 cur_beta = start_beta
 if direct_design:
     cur_beta = cur_beta * 2 ** 7
-beta_scale = 4
+beta_scale = 2
 if direct_design:
     num_betas = 0
 else:
     num_betas = 3 #6
 update_factor = 10 #20
 totalIterations = num_betas * update_factor
-ftol = 1e-5
+ftol = 1e-3
 start = datetime.datetime.now()
 
 
@@ -454,6 +465,8 @@ print("Opitimization started at " + str(start))
 if mp.am_really_master():
     sendNotification("Opitimization started at " + str(start))
 for iters in range(num_betas):
+    if iters == num_betas - 1:
+        cur_beta = 2**10
     solver = nlopt.opt(algorithm, n)
     solver.set_lower_bounds(lb)
     solver.set_upper_bounds(ub)
@@ -534,7 +547,7 @@ sim = mp.Simulation(
     geometry=geometry,
     sources=source,
     default_material=Air,
-    # symmetries=[mp.Mirror(direction=mp.X), mp.Mirror(direction=mp.Y)] if symmetry else None,
+    symmetries=[mp.Mirror(direction=mp.X, phase=-1), mp.Mirror(direction=mp.Y)] if symmetry else None,
     # symmetries=[mp.Mirror(direction=mp.Y)] if symmetry else None,
     resolution=resolution,
 )
@@ -548,7 +561,6 @@ near_fields_before = sim.add_dft_fields([mp.Ex], freq, 0, 1,
                                             size=mp.Vector3(x=design_region_width, y=design_region_width))
 near_fields = sim.add_dft_fields([mp.Ex], freq, 0, 1, center=mp.Vector3(),
                                     size=mp.Vector3(x=Sx, z=Sz2))
-
 
 
 sim.run(until=200)
