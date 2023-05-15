@@ -605,7 +605,7 @@ for sample_nr in range(num_samples):
         material=SiO2
     ))
 
-    #opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
+    opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
 
     # Plot fields
     for freq in frequencies:
@@ -653,7 +653,7 @@ for sample_nr in range(num_samples):
         opt.sim.run(until=200)
         plt.figure(figsize=(Sx, Sy2))
         opt.sim.plot2D(fields=mp.Ez)
-        fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(1/freq) + "Angle" + rot_angle + ".png"
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/Angle15_fieldAtWavelength" + str(1/freq) + ".png"
         plt.savefig(fileName)
 
         opt.sim2 = mp.Simulation(
@@ -670,7 +670,7 @@ for sample_nr in range(num_samples):
         opt.sim2.run(until=200)
         plt.figure(figsize=(Sx, Sy2))
         opt.sim.plot2D(fields=mp.Ez)
-        fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(1 / freq) + "Angle" + rot_angle2 + ".png"
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/Angle5_fieldAtWavelength" + str(1 / freq) + ".png"
         plt.savefig(fileName)
 
 
