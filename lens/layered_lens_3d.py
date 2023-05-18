@@ -14,12 +14,12 @@ import random
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_3d_1layer_test3"
-num_layers = 1
+scriptName = "metalens_3d_2layer_exp_2"
+num_layers = 2
 start_from_direct = True
 direct_design = False
-symmetry = True
-exponential_thickness = False # if False: uniform thickness
+symmetry = False
+exponential_thickness = True # if False: uniform thickness
 
 #mp.divide_parallel_processes(16)
 
@@ -128,7 +128,6 @@ def symmetrize(x, Nx, Ny):
 
     return np.reshape(x2, [Nx * Ny])
 
-
 # checking if the directory demo_folder
 # exist or not.
 if not os.path.exists("./" + scriptName):
@@ -149,7 +148,7 @@ Air = mp.Medium(index=1.0)
 design_region_width = 10
 if exponential_thickness:
     design_region_height = []
-    for i in num_layers:
+    for i in range(num_layers):
         design_region_height.append(0.24 / 2**i)
 else:
     design_region_height = [0.48 / (num_layers + 1)]*num_layers
@@ -225,12 +224,12 @@ def mapping(x, eta, beta):
         design_region_resolution,
     )
 
+    # symmetry
+    if symmetry:
+        filtered_field = symmetrize(filtered_field, Nx, Ny)
+
     # projection
     projected_field = mpa.tanh_projection(filtered_field, beta, eta)  # Make binary
-
-    # symmetry
-    # if symmetry:
-    #     projected_field = symmetrize(projected_field, Nx, Ny)
 
     # interpolate to actual materials
     return projected_field.flatten()
@@ -296,7 +295,7 @@ opt = mpa.OptimizationProblem(
 # Gradient
 evaluation_history = []  # Keep track of objective function evaluations
 cur_iter = [0]  # Iteration
-# v2 = [None]
+v2 = [None]
 
 def f(v, gradient, cur_beta):
     if cur_iter[0] != 0:
@@ -307,12 +306,15 @@ def f(v, gradient, cur_beta):
         print("Current iteration: {}".format(cur_iter[0]))
     cur_iter[0] += 1
 
+
     reshaped_v = np.reshape(v, [num_layers, Nx*Ny])
+    # for i in range(num_layers):
+    #     reshaped_v[i, :] = symmetrize(reshaped_v[i, :], Nx, Ny)
 
     f0, dJ_du = opt(
         [mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])  # compute objective and gradient
     # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
-    # print(dJ_du)
+    print(dJ_du)
     if gradient.size > 0:
         if isinstance(dJ_du[0], list) or isinstance(dJ_du[0], np.ndarray):
             gradi = [tensor_jacobian_product(mapping, 0)(
@@ -322,12 +324,15 @@ def f(v, gradient, cur_beta):
             gradi = tensor_jacobian_product(mapping, 0)(
                 reshaped_v, eta_i, cur_beta, dJ_du)  # backprop
 
+        print(np.shape(gradi))
+        # for i in range(num_layers):
+        #     gradi[i, :] = symmetrize(gradi[i, :], Nx, Ny)
         gradient[:] = np.reshape(gradi, [n])
 
-    # if v2[0] is not None:
-    #     print(v2 - v)
-    # v2[:] = v
-    # print(gradient)
+    if v2[0] is not None:
+        print(v2 - v)
+    v2[:] = v
+    print(gradient)
     evaluation_history.append(f0)  # add objective function evaluation to list
 
     np.save("./" + scriptName + "/x_" + str(cur_iter[0]), x)
@@ -368,7 +373,7 @@ if start_from_direct: # make the direct design
     if direct_design:
         random_perturbation = 0
     else:
-        random_perturbation = 0.5  # randomization added afterwards
+        random_perturbation = 0.96  # randomization added afterwards
     phase0 = random.random()# reference phase
     for k in range(Ny//2, Ny):
         for j in range(Nx//2, Nx):
@@ -381,31 +386,31 @@ if start_from_direct: # make the direct design
             for i in range(num_layers):
                 if exponential_thickness:
                     if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0: # determines whether layer is TiOx or SiO2 for exp thick (binary coding)
-                        reshaped_x[i, j, k] = 0.75
+                        reshaped_x[i, j, k] = 1
                     else:
-                        reshaped_x[i, j, k] = 0.25
+                        reshaped_x[i, j, k] = 0
                 else:
                     if phase_step > i: # determines whether layer is TiOx or SiO2 for uni thick (normal counting)
-                        reshaped_x[i, j, k] = 0.75
+                        reshaped_x[i, j, k] = 1
                     else:
-                        reshaped_x[i, j, k] = 0.25
+                        reshaped_x[i, j, k] = 0
                 reshaped_x[i, -j, k] = reshaped_x[i, j, k]
                 reshaped_x[i, j, -k] = reshaped_x[i, j, k]
                 reshaped_x[i, -j, -k] = reshaped_x[i, j, k]
 
 
     if symmetry:
-        x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n)) # add randomization
+        x = (1-random_perturbation) * np.reshape(reshaped_x, [n]) + random_perturbation * (np.random.rand(n)) # add randomization
         xi = np.zeros([num_layers, Nx * Ny])
         for i in range(num_layers):
             xi[i, :] = symmetrize(np.reshape(reshaped_x[i, :, :], [Nx * Ny]), Nx, Ny) # symmetrize (over x and y axes)
         x = np.reshape(xi, [n])
     else: # not symmetric
-        x = np.reshape(reshaped_x, [n]) + random_perturbation * (-0.5 + np.random.rand(n)) # add randomization
+        x = (1-random_perturbation) * np.reshape(reshaped_x, [n]) + random_perturbation * (np.random.rand(n)) # add randomization
 else: # don't start from direct design
     x = np.random.rand(n) # give a random starting design
 
-start_beta = 128 # 4
+start_beta = 256 # 4
 reshaped_x = np.reshape(x, [num_layers, Nx*Nx])
 mapped_x = [mapping(reshaped_x[i, :], eta_i, start_beta) for i in range(num_layers)]
 opt.update_design(mapped_x)
@@ -416,15 +421,17 @@ ub = np.ones(n)
 
 print("plot")
 output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(Sx, 0, Sz))
-plt.figure()
-opt.plot2D(output_plane=output_plane, plot_monitors_flag=True)
-plt.savefig(scriptName + "/design_XZ.png")
+if mp.am_really_master():
+    plt.figure()
+    opt.plot2D(output_plane=output_plane, plot_monitors_flag=True)
+    plt.savefig(scriptName + "/design_XZ.png")
 
 output_planes = [mp.Volume(center=design_region.center, size=mp.Vector3(Sx, Sx, 0)) for design_region in design_regions]
-for i in range(num_layers):
-    plt.figure()
-    opt.plot2D(output_plane=output_planes[i])
-    plt.savefig(scriptName + "/design_layer" + str(i) + ".png")
+if mp.am_really_master():
+    for i in range(num_layers):
+        plt.figure()
+        opt.plot2D(output_plane=output_planes[i])
+        plt.savefig(scriptName + "/design_layer" + str(i) + ".png")
 
 cur_beta = start_beta
 if direct_design:
@@ -433,8 +440,8 @@ beta_scale = 2
 if direct_design:
     num_betas = 0
 else:
-    num_betas = 3 #6
-update_factor = 10 #20
+    num_betas = 2 #6
+update_factor = 15 #20
 totalIterations = num_betas * update_factor
 ftol = 1e-3
 start = datetime.datetime.now()
@@ -463,7 +470,7 @@ with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
 
 print("Opitimization started at " + str(start))
 if mp.am_really_master():
-    sendNotification("Opitimization started at " + str(start))
+    sendNotification("Opitimization started at " + str(start) + "; " + scriptName)
 for iters in range(num_betas):
     if iters == num_betas - 1:
         cur_beta = 2**10
@@ -481,7 +488,7 @@ for iters in range(num_betas):
           "% completed ; eta at " + str(start + estimatedSimulationTime))
     if mp.am_really_master():
         sendNotification("Opitimization " + str(100 * (iters + 1) / num_betas) + " % completed; eta at " +
-                         str(start + estimatedSimulationTime))
+                         str(start + estimatedSimulationTime) + "; " + scriptName)
     np.save("./" + scriptName + "/x_" + str(cur_iter[0]), x)
 
 cur_beta = cur_beta / beta_scale
@@ -566,63 +573,39 @@ near_fields = sim.add_dft_fields([mp.Ex], freq, 0, 1, center=mp.Vector3(),
 sim.run(until=200)
 print(1)
 
+focussed_field = sim.get_dft_array(near_fields_focus, mp.Ex, 0)
+focussed_field_line = sim.get_dft_array(near_fields_focus_line, mp.Ex, 0)
+before_field = sim.get_dft_array(near_fields_before, mp.Ex, 0)
+scattered_field = sim.get_dft_array(near_fields, mp.Ex, 0)
+# near_field = sim.get_dft_array(near_fields, mp.Ex, 0)
+
+print(2)
+
+print(focussed_field_line)
+focussed_amplitude = np.abs(focussed_field) ** 2
+focussed_amplitude_line = np.abs(focussed_field_line) ** 2
+scattered_amplitude = np.abs(scattered_field) ** 2
+before_amplitude = np.abs(before_field) ** 2
+
+np.save("./" + scriptName + "/intensity_at_focus_line",
+        focussed_amplitude_line)
+np.save("./" + scriptName + "/intensity_at_focus",
+        focussed_amplitude)
+np.save("./" + scriptName + "/intensity_before lens",
+        before_amplitude)
+np.save("./" + scriptName + "/intensity_XZ",
+        scattered_amplitude)
+
 if mp.am_really_master():
     output_plane = mp.Volume(center=mp.Vector3(), size=mp.Vector3(Sx, 0, Sz2))
 
-    print(2)
-
-    focussed_field = sim.get_dft_array(near_fields_focus, mp.Ex, 0)
-    focussed_field_line = sim.get_dft_array(near_fields_focus_line, mp.Ex, 0)
-    before_field = sim.get_dft_array(near_fields_before, mp.Ex, 0)
-    scattered_field = sim.get_dft_array(near_fields, mp.Ex, 0)
-    # near_field = sim.get_dft_array(near_fields, mp.Ex, 0)
-
     print(3)
-
-    print(focussed_field_line)
-    focussed_amplitude = np.abs(focussed_field) ** 2
-    focussed_amplitude_line = np.abs(focussed_field_line) ** 2
-    scattered_amplitude = np.abs(scattered_field) ** 2
-    before_amplitude = np.abs(before_field) ** 2
-
-
-    np.save("./" + scriptName + "/intensity_at_focus_line",
-            focussed_amplitude_line)
-    np.save("./" + scriptName + "/intensity_at_focus",
-            focussed_amplitude)
-    np.save("./" + scriptName + "/intensity_before lens",
-            before_amplitude)
-    np.save("./" + scriptName + "/intensity_XZ",
-            scattered_amplitude)
-
-
     print("start plotting...")
-    plt.figure()#figsize=(Sx, Sz2))
-    # opt.sim.plot2D(
-    #             False,
-    #             fields=mp.Ex,
-    #             output_plane=output_plane)
-    ax = plt.gca()
-
-    print(4)
-    sim.plot2D(
-        # False,
-        ax=ax,
-        # plot_sources_flag=False,
-        plot_monitors_flag=False,
-        # plot_boundaries_flag=False,
-        output_plane=output_plane,
-        fields=mp.Ex
-    )
-    fileName = "./" + scriptName + "/field.png"
-    print(5)
-    plt.savefig(fileName)
-    print("end plotting...")
 
     [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
     [xk, yk, zk, wk] = sim.get_array_metadata(dft_cell=near_fields_focus_line)
     [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
-
+    print(4)
     # plot intensity XZ
     print("start plotting...")
     plt.figure(dpi=150)
@@ -708,4 +691,27 @@ if mp.am_really_master():
         var_file.write("FWHM \t" + str(FWHM) + "\n")
         var_file.write("run_time \t" + str(datetime.datetime.now() - start) + "\n")
 
-    sendNotification("Simulation finished")
+    print(5)
+    plt.figure()#figsize=(Sx, Sz2))
+    # opt.sim.plot2D(
+    #             False,
+    #             fields=mp.Ex,
+    #             output_plane=output_plane)
+    ax = plt.gca()
+
+    print(6)
+    sim.plot2D(
+        # False,
+        ax=ax,
+        # plot_sources_flag=False,
+        plot_monitors_flag=False,
+        # plot_boundaries_flag=False,
+        output_plane=output_plane,
+        fields=mp.Ex
+    )
+    fileName = "./" + scriptName + "/field.png"
+    print(7)
+    plt.savefig(fileName)
+    print("end plotting...")
+
+    sendNotification("Simulation finished" + "; " + scriptName)

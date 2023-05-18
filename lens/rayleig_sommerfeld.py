@@ -24,33 +24,35 @@ real_g2 = lambda x, y: np.real(g2(x, y))
 imag_g2 = lambda x, y: np.imag(g2(x, y))
 real_g3 = lambda x, y, z: np.real(g3(x, y, z))
 imag_g3 = lambda x, y, z: np.imag(g3(x, y, z))
-function_to_optimize = lambda z: np.abs(integ.dblquad(lambda y, x: real_g3(x, y, z), -w / 2, w / 2, -30, 30)[0] \
-            + 1j * integ.dblquad(lambda y, x: imag_g3(x, y, z), -w / 2, w / 2, -30, 30)[0])**(-2)
+function_to_optimize = lambda z: 4*np.abs(integ.dblquad(lambda y, x: real_g3(x, y, z), 0, w / 2, 0, 30)[0] \
+            + 1j * integ.dblquad(lambda y, x: imag_g3(x, y, z), 0, w / 2, 0, 30)[0])**(-2)
 
-opti = scipy.optimize.minimize_scalar(function_to_optimize, bounds=[2.2, 3])
-print(opti)
+# opti = scipy.optimize.minimize_scalar(function_to_optimize, bounds=[2.2, 3])
+# print(opti)
 
 print(np.abs(4*integ.dblquad(lambda y, x: real_g2(x, y), 0, w/2, 0, 30)[0] \
     + 4*1j*integ.dblquad(lambda y, x: imag_g2(x, y), 0, w/2, 0, 30)[0]) ** 2)
 
-# N = 50
-# fs = np.linspace(1/100, 10, N)
-# U2 = np.ones(N) * 1j
-# for i in range(N):
-#     U2[i] = integ.dblquad(lambda y, x: real_g3(x, y, fs[i]), -w / 2, w / 2, -30, 30)[0] \
-#             + 1j * integ.dblquad(lambda y, x: imag_g3(x, y, fs[i]), -w / 2, w / 2, -30, 30)[0]
-#     if (10 * i / N) % 1 == 0:
-#         print(str(int(100 * i / N) + 10) + " %")
-#
-#
-# plt.rc('font', size=25)
-# plt.figure()
-# plt.plot(fs, np.abs(U2)**2)
-# plt.xlabel("f [µm]")
-# # plt.rcParams.update({'font.size': 100})
-# plt.rc('font', size=25)
-# plt.ylabel("Intensity at focal point")
-# plt.show()
+N = 50
+fs = np.linspace(1/100, 10, N)
+U2 = np.ones(N) * 1j
+for i in range(N):
+    U2[i] = 4*integ.dblquad(lambda y, x: real_g3(x, y, fs[i]), 0, w / 2, 0, 30)[0] \
+            + 1j * 4*integ.dblquad(lambda y, x: imag_g3(x, y, fs[i]), 0, w / 2, 0, 30)[0]
+    if (10 * i / N) % 1 == 0:
+        print(str(int(100 * i / N) + 10) + " %")
+
+
+plt.rc('font', size=25)
+plt.figure()
+plt.plot(fs, np.abs(U2)**2)
+plt.scatter([1, 2, 2.74, 4, 6], [30.109, 28.360, 27.056, 24.561, 20.509], c='red')
+plt.xlabel("f [µm]")
+plt.legend(["Theoretical", "Experimental"], loc='bottom right')
+# plt.rcParams.update({'font.size': 100})
+plt.rc('font', size=25)
+plt.ylabel("Intensity at focal point")
+plt.show()
 
 N = 100
 dx = 1.5

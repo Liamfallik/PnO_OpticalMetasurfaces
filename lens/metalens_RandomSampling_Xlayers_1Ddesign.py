@@ -15,18 +15,30 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "metalens_img_RandomSampling_test"
+scriptName = "metalens_img_RandomSampling_direct_design_2layers_uni"
 symmetry = True # Impose symmetry around x = 0 line
+start_from_direct = True # starting conditions is direct design + some randomization
+direct_design = True # we don't do inverse design, just calculate the properties of direct design
+exponential_thickness = False # if False: uniform thickness
 
 # Dimensions
-num_layers = 6 # amount of layers
+num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.0686]*num_layers # height of layer
+if exponential_thickness:
+    design_region_height = []
+    for i in range(num_layers):
+        design_region_height.append(0.24 / 2**i) # 0.24 for wavelength of 0.6, and SiO2 and TiO2 as materials
+else:
+    design_region_height = [0.48 / (num_layers + 1)]*num_layers
 spacing = 0 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
+focal_point = 6 # focal length
 
-num_samples = 1 # 30
+if direct_design:
+    num_samples = 5
+else:
+    num_samples = 15 # 30. Amount of random starting points
 
 
 def sendNotification(message):
@@ -168,7 +180,7 @@ if not os.path.exists("./" + scriptName):
     # then create it.
     os.makedirs("./" + scriptName)
 
-mp.verbosity(0) # amount of info printed during simulation
+mp.verbosity(0) # amount of info printed during simulation. Change to 1 for info
 
 # Materials
 Si = mp.Medium(index=3.4)
@@ -192,7 +204,7 @@ nf = 3 # Amount of frequencies studied
 frequencies = 1./np.linspace(0.55, 0.65, nf)
 
 # Feature size constraints
-minimum_length = 0.09  # minimum length scale (microns)
+minimum_length = 0.09  # minimum length scale (microns). Minimum feature size (MFS)
 eta_i = (
     0.5  # blueprint (or intermediate) design field thresholding point (between 0 and 1)
 )
@@ -221,7 +233,7 @@ Nx = int(design_region_resolution * design_region_width)
 Ny = 1 # int(design_region_resolution * design_region_height)
 
 
-design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in range(num_layers)] # SiO2
+design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in range(num_layers)] #
 design_regions = [mpa.DesignRegion(
     design_variables[i],
     volume=mp.Volume(
@@ -255,7 +267,7 @@ def mapping(x, eta, beta):
     # interpolate to actual materials
     return projected_field.flatten()
 
-# Geometry: all is design region, no fixed parts
+# Geometry
 geometry = [
     mp.Block(
         center=design_region.center, size=design_region.size, material=design_region.design_parameters
@@ -267,6 +279,7 @@ geometry = [
     # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
     for design_region in design_regions
     ]
+# Add SiO2 slab below
 geometry.append(mp.Block(
         center = mp.Vector3(y=-(half_total_height + Sy/2) / 2),
         size=mp.Vector3(x = Sx, y = (Sy/2 - half_total_height)),
@@ -286,8 +299,7 @@ sim = mp.Simulation(
     resolution=resolution,
 )
 
-# Focus point, 7.5 µm beyond centre of lens
-focal_point = 6
+# Focus point, 6 µm beyond centre of lens
 far_x = [mp.Vector3(0, focal_point, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
@@ -314,9 +326,10 @@ opt = mpa.OptimizationProblem(
     maximum_run_time=2000,
 )
 
-plt.figure()
-opt.plot2D(True)
-plt.savefig("./" + scriptName + "/optimizationDesign.png")
+if mp.am_really_master(): # easier plotting in case ran in parallel
+    plt.figure()
+    opt.plot2D(True)
+    plt.savefig("./" + scriptName + "/optimizationDesign.png")
 
 # Gradient
 evaluation_history = [] # Keep track of objective function evaluations
@@ -349,25 +362,21 @@ def f(v, gradient, cur_beta):
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
-
-    plt.figure() # Plot current design
-    ax = plt.gca()
-    opt.update_design([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])
-    opt.plot2D(
-        False,
-        ax=ax,
-        plot_sources_flag=False,
-        plot_monitors_flag=False,
-        plot_boundaries_flag=False,
-    )
-    circ = Circle((2, 2), minimum_length / 2)
-    ax.add_patch(circ)
-    ax.axis("off")
-    plt.savefig("./" + scriptName + "/" + scriptName_i + "/img_{" + str(cur_iter[0]) + ".png")
-
-    # Efield = opt.sim.get_epsilon()
-    # plt.figure()
-    # plt.plot(Efield ** 2)
+    if mp.am_really_master(): # easier plotting in case ran in parallel
+        plt.figure() # Plot current design
+        ax = plt.gca()
+        opt.update_design([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])
+        opt.plot2D(
+            False,
+            ax=ax,
+            plot_sources_flag=False,
+            plot_monitors_flag=False,
+            plot_boundaries_flag=False,
+        )
+        circ = Circle((2, 2), minimum_length / 2)
+        ax.add_patch(circ)
+        ax.axis("off")
+        plt.savefig("./" + scriptName + "/" + scriptName_i + "/img_{" + str(cur_iter[0]) + ".png")
 
     plt.close()
 
@@ -377,8 +386,8 @@ def f(v, gradient, cur_beta):
 # Initial guess
 seed = 240 # make sure starting conditions are random, but always the same. Change seed to change starting conditions
 np.random.seed(seed)
-
-
+start_beta = 4
+# Save variables, for further reference
 with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
     var_file.write("num_layers \t" + str(num_layers) + "\n")
     var_file.write("symmetry \t" + str(symmetry) + "\n")
@@ -394,6 +403,7 @@ with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
     var_file.write("fwidth \t" + str(fwidth) + "\n")
     var_file.write("focal_point \t" + str(focal_point) + "\n")
     var_file.write("seed \t%d" % seed + "\n")
+    var_file.write("start_beta \t%d" % start_beta + "\n")
 
 # store best objective value
 best_f0 = 0
@@ -431,27 +441,40 @@ for sample_nr in range(num_samples):
     n = Nx * num_layers # number of parameters
 
     # lower and upper bounds
-    lb = np.zeros((n,))
-    ub = np.ones((n,))
+    lb = np.zeros((n,)) # can't go below SiO2
+    ub = np.ones((n,)) # can't go beyond TiOx
 
-    x = np.random.rand(n) * 0.6
-    # reshaped_x = np.zeros([num_layers, Nx])
+    reshaped_x = 0.5 * np.ones([num_layers, Nx])
+    if start_from_direct:  # make the direct design
+        if direct_design:
+            random_perturbation = 0
+        else:
+            random_perturbation = 0.96  # randomization added afterwards
+        phase0 = random.random()  # reference phase
+        for j in range(Nx // 2, Nx):
+            phase = (phase0 - np.sqrt(focal_point ** 2 + ((j - Nx // 2) / design_region_resolution) ** 2) * frequencies[
+                         nf // 2]) % 1  # calculate required phase
+            if exponential_thickness:
+                phase_step = int(phase * 2 ** num_layers)  # assign phase to certain integer number (from 1 to max number of combinations)
+            else:
+                phase_step = int(phase * (num_layers + 1))  # assign phase to certain integer number (from 1 to max number of combinations)
+            for i in range(num_layers):
+                if exponential_thickness:
+                    if phase_step % (2 ** (num_layers - i)) // 2 ** (
+                            num_layers - i - 1) != 0:  # determines whether layer is TiOx or SiO2 for exp thick (binary coding)
+                        reshaped_x[i, j] = 1
+                    else:
+                        reshaped_x[i, j] = 0
+                else:
+                    if phase_step > i:  # determines whether layer is TiOx or SiO2 for uni thick (normal counting)
+                        reshaped_x[i, j] = 1
+                    else:
+                        reshaped_x[i, j] = 0
+                reshaped_x[i, -j] = reshaped_x[i, j]
 
-    # phase0 = (focal_point * frequencies[1]) % 1 + random.random()# (1-0.9*0.5**num_layers)
-    # for j in range(Nx//2, Nx):
-    #     phase = (phase0 - np.sqrt(focal_point**2 + ((j - Nx//2) / design_region_resolution)**2) * frequencies[1]) % 1
-    #     phase_step = int(phase * 2**num_layers)
-    #     for i in range(num_layers):
-    #         if phase_step % (2**(num_layers - i)) // 2**(num_layers - i - 1) != 0:
-    #             reshaped_x[i, j] = 1.5 if symmetry else 0.75
-    #         else:
-    #             reshaped_x[i, j] = 0.5 if symmetry else 0.25
-
-
-    # x = np.reshape(reshaped_x, [n])# + 0.5 * (-0.5 + np.random.rand(n))
-    # file_path = "x.npy"
-    # with open(file_path, 'rb') as file:
-    #     x = np.load(file)
+        x = (1 - random_perturbation) * np.reshape(reshaped_x, [n]) + random_perturbation * (np.random.rand(n))  # add randomization
+    else:  # don't start from direct design
+        x = np.random.rand(n)*0.6  # give a random starting design
 
     if symmetry:
         for i in range(num_layers):
@@ -471,27 +494,34 @@ for sample_nr in range(num_samples):
 
     # Plot first design
     reshaped_x = np.reshape(x, [num_layers, Nx])
-    mapped_x = [mapping(reshaped_x[i, :], eta_i, 4) for i in range(num_layers)]
+    mapped_x = [mapping(reshaped_x[i, :], eta_i, start_beta) for i in range(num_layers)]
     opt.update_design(mapped_x)
-    plt.figure()
-    ax = plt.gca()
-    opt.plot2D(
-        False,
-        ax=ax,
-        plot_sources_flag=False,
-        plot_monitors_flag=False,
-        plot_boundaries_flag=False,
-    )
-    circ = Circle((2, 2), minimum_length / 2)
-    ax.add_patch(circ)
-    ax.axis("off")
-    plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
+    if mp.am_really_master():
+        plt.figure()
+        ax = plt.gca()
+        opt.plot2D(
+            False,
+            ax=ax,
+            plot_sources_flag=False,
+            plot_monitors_flag=False,
+            plot_boundaries_flag=False,
+        )
+        circ = Circle((2, 2), minimum_length / 2)
+        ax.add_patch(circ)
+        ax.axis("off")
+        plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
 
     # Optimization
-    cur_beta = 4 # 4
-    beta_scale = 2 # 2
-    num_betas = 7 # 6
-    update_factor = 50 # 12
+
+    cur_beta = start_beta # 4
+    if direct_design:
+        cur_beta = cur_beta * 2 ** 7
+    beta_scale = 2
+    if direct_design:
+        num_betas = 0 # no optimization will be done
+    else:
+        num_betas = 7 # 7 steps in beta during optimization
+    update_factor = 50 # amount of iterations during optimization per beta value
     totalIterations = num_betas * update_factor
     ftol = 1e-3 # 1e-5
     start = datetime.datetime.now()
@@ -499,7 +529,7 @@ for sample_nr in range(num_samples):
     # sendNotification("Opitimization started at " + str(start))
     for iters in range(num_betas):
         if iters == num_betas - 1:
-            cur_beta = 1e6
+            cur_beta = 1e6 # last iteration needs to be completely binarized
         solver = nlopt.opt(algorithm, n)
         solver.set_lower_bounds(lb)
         solver.set_upper_bounds(ub)
@@ -521,19 +551,20 @@ for sample_nr in range(num_samples):
     # Plot final design
     reshaped_x = np.reshape(x, [num_layers, Nx])
     opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
-    plt.figure()
-    ax = plt.gca()
-    opt.plot2D(
-        False,
-        ax=ax,
-        plot_sources_flag=False,
-        plot_monitors_flag=False,
-        plot_boundaries_flag=False,
-    )
-    circ = Circle((2, 2), minimum_length / 2)
-    ax.add_patch(circ)
-    ax.axis("off")
-    plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesign.png")
+    if mp.am_really_master():
+        plt.figure()
+        ax = plt.gca()
+        opt.plot2D(
+            False,
+            ax=ax,
+            plot_sources_flag=False,
+            plot_monitors_flag=False,
+            plot_boundaries_flag=False,
+        )
+        circ = Circle((2, 2), minimum_length / 2)
+        ax.add_patch(circ)
+        ax.axis("off")
+        plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesign.png")
 
     # Check intensities in optimal design
     f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)], need_gradient=False)
@@ -552,16 +583,17 @@ for sample_nr in range(num_samples):
     f0s[sample_nr, :] = intensities
 
     # Plot intensities
-    plt.figure()
-    plt.plot(1 / frequencies, intensities, "-o")
-    plt.grid(True)
-    plt.xlabel("Wavelength (microns)")
-    plt.ylabel("|Ez|^2 Intensities")
-    plt.savefig("./" + scriptName + "/" + scriptName_i + "/intensities.png")
+    if mp.am_really_master():
+        plt.figure()
+        plt.plot(1 / frequencies, intensities, "-o")
+        plt.grid(True)
+        plt.xlabel("Wavelength (microns)")
+        plt.ylabel("|Ez|^2 Intensities")
+        plt.savefig("./" + scriptName + "/" + scriptName_i + "/intensities.png")
 
-    np.save("./" + scriptName + "/" + scriptName_i + "/v", x)
+        np.save("./" + scriptName + "/" + scriptName_i + "/v", x)
 
-    animate.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animation.gif")
+        animate.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animation.gif")
 
     Sy2 = 20
     geometry.append(mp.Block(
@@ -571,50 +603,44 @@ for sample_nr in range(num_samples):
     ))
 
     # Plot fields
-    for freq in frequencies:
-        opt.sim = mp.Simulation(
-            cell_size=mp.Vector3(Sx, Sy2),
-            boundary_layers=pml_layers,
-            # k_point=kpoint,
-            geometry=geometry,
-            sources=source,
-            default_material=Air,
-            symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
-            resolution=resolution,
-        )
-        src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
-        source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
-        opt.sim.change_sources(source)
+    if not direct_design: # takes relatively too much time for direct design
+        for freq in frequencies:
+            opt.sim = mp.Simulation(
+                cell_size=mp.Vector3(Sx, Sy2),
+                boundary_layers=pml_layers,
+                # k_point=kpoint,
+                geometry=geometry,
+                sources=source,
+                default_material=Air,
+                symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
+                resolution=resolution,
+            )
+            src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
+            source = [mp.Source(src, component=mp.Ez, size=source_size, center=source_center)]
+            opt.sim.change_sources(source)
 
-        opt.sim.run(until=200)
-        plt.figure(figsize=(Sx, Sy2))
-        opt.sim.plot2D(fields=mp.Ez)
-        fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(int(100/freq) / 100) + ".png"
+            opt.sim.run(until=200)
+            if mp.am_really_master():
+                plt.figure(figsize=(Sx, Sy2))
+                opt.sim.plot2D(fields=mp.Ez)
+                fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(int(100/freq) / 100) + ".png"
+                plt.savefig(fileName)
+
+    if mp.am_really_master():
+        plt.figure()
+        plt.plot(evaluation_history, "o-")
+        plt.grid(True)
+        plt.xlabel("Iteration")
+        plt.ylabel("FOM")
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/FOM.png"
         plt.savefig(fileName)
-        # try:
-        #     Efield = opt.get_efield_z()
-        #     print(Efield)
-        #     plt.figure()
-        #     plt.imshow(np.abs(Efield)**2, interpolation="nearest", origin="upper")
-        #     plt.colorbar()
-        #     fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityAtWavelength" + str(1 / freq) + ".png"
-        #     plt.savefig(fileName)
-        # except:
-        #     print("Plotting intensity failed, needs updated meep files")
+        plt.close()
 
+        estimatedSimulationTime = (datetime.datetime.now() - start0) * num_samples / (sample_nr + 1)
+        sendNotification("Opitimization " + str(int(10000 * (sample_nr + 1) / num_samples)/100) + " % completed; eta at " +
+                         str(start0 + estimatedSimulationTime) + "; " + scriptName)
 
-    plt.figure()
-    plt.plot(evaluation_history, "o-")
-    plt.grid(True)
-    plt.xlabel("Iteration")
-    plt.ylabel("FOM")
-    fileName = f"./" + scriptName + "/" + scriptName_i + "/FOM.png"
-    plt.savefig(fileName)
     plt.close()
-
-    estimatedSimulationTime = (datetime.datetime.now() - start0) * num_samples / (sample_nr + 1)
-    sendNotification("Opitimization " + str(int(10000 * (sample_nr + 1) / num_samples)/100) + " % completed; eta at " +
-                     str(start0 + estimatedSimulationTime) + "; " + scriptName)
 
 print(best_nr)
 print(best_f0)
@@ -623,14 +649,15 @@ lb = np.min(f0s, axis=1)
 ub = np.max(f0s, axis=1)
 mean = np.mean(f0s, axis=1)
 
-plt.figure()
-plt.fill_between(np.arange(num_samples), ub, lb, alpha=0.3)
-plt.plot(mean, "o-")
-plt.grid(True)
-plt.xlabel("Iteration")
-plt.ylabel("FOM")
-fileName = f"./" + scriptName + "/FOM.png"
-plt.savefig(fileName)
+if mp.am_really_master():
+    plt.figure()
+    plt.fill_between(np.arange(num_samples), ub, lb, alpha=0.3)
+    plt.plot(mean, "o-")
+    plt.grid(True)
+    plt.xlabel("Iteration")
+    plt.ylabel("FOM")
+    fileName = f"./" + scriptName + "/FOM.png"
+    plt.savefig(fileName)
 plt.close()
 
 with open("./" + scriptName + "/best_result.txt", 'w') as var_file:
@@ -684,43 +711,56 @@ for freq in frequencies:
     scattered_amplitude = np.abs(scattered_field) ** 2
     before_amplitude = np.abs(before_field) ** 2
 
-    [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
-    [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
-
-    # plot colormesh
-    plt.figure(dpi=150)
-    plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude))), cmap='inferno', shading='gouraud',
-                   vmin=0,
-                   vmax=scattered_amplitude.max())
-    plt.gca().set_aspect('equal')
-    plt.xlabel('x (μm)')
-    plt.ylabel('y (μm)')
-
-    # ensure that the height of the colobar matches that of the plot
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
-    divider = make_axes_locatable(plt.gca())
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    plt.colorbar(cax=cax)
-    plt.tight_layout()
-    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(
-        int(100 / freq) / 100) + ".png"
-    plt.savefig(fileName)
-
-    # plot intensity around focal point
-    plt.figure()
-    plt.plot(xi, focussed_amplitude, 'bo-')
-    plt.xlabel("x (μm)")
-    plt.ylabel("field amplitude")
-    fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(
-        int(100 / freq) / 100) + ".png"
-    plt.savefig(fileName)
-    sendPhoto(fileName)
-
-    efficiency.append(focussing_efficiency(focussed_amplitude, before_amplitude))
-    FWHM.append(get_FWHM(focussed_amplitude, xi))
-
     np.save("./" + scriptName + "/" + scriptName_i + "/intensity_at_focus_freq" + str(int(100 / freq) / 100),
             focussed_amplitude)
+    np.save("./" + scriptName + "/" + scriptName_i + "/intensity_everywhere_freq" + str(int(100 / freq) / 100),
+            scattered_amplitude)
+    np.save("./" + scriptName + "/" + scriptName_i + "/intensity_before_lens_freq" + str(int(100 / freq) / 100),
+            before_amplitude)
+
+    [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
+    [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
+    np.save("./" + scriptName + "/" + scriptName_i + "/xi_freq" + str(int(100 / freq) / 100),
+            xi)
+    np.save("./" + scriptName + "/" + scriptName_i + "/xj_freq" + str(int(100 / freq) / 100),
+            xj)
+    np.save("./" + scriptName + "/" + scriptName_i + "/yj_freq" + str(int(100 / freq) / 100),
+            yj)
+
+    # plot colormesh
+    if mp.am_really_master():
+        plt.figure(dpi=150)
+        plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude))), cmap='inferno', shading='gouraud',
+                       vmin=0,
+                       vmax=scattered_amplitude.max())
+        plt.gca().set_aspect('equal')
+        plt.xlabel('x (μm)')
+        plt.ylabel('y (μm)')
+
+        # ensure that the height of the colobar matches that of the plot
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+        divider = make_axes_locatable(plt.gca())
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        plt.colorbar(cax=cax)
+        plt.tight_layout()
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityMapAtWavelength" + str(
+            int(100 / freq) / 100) + ".png"
+        plt.savefig(fileName)
+
+        # plot intensity around focal point
+        plt.figure()
+        plt.plot(xi, focussed_amplitude, 'bo-')
+        plt.xlabel("x (μm)")
+        plt.ylabel("field amplitude")
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/intensityOverLineAtWavelength" + str(
+            int(100 / freq) / 100) + ".png"
+        plt.savefig(fileName)
+        sendPhoto(fileName)
+
+        efficiency.append(focussing_efficiency(focussed_amplitude, before_amplitude))
+        FWHM.append(get_FWHM(focussed_amplitude, xi))
+
+
 
 with open("./" + scriptName + "/best_result.txt", 'a') as var_file:
     var_file.write("focussing_efficiency \t" + str(efficiency) + "\n")

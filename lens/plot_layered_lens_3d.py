@@ -14,7 +14,7 @@ import random
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_3d_1layer_direct"
+scriptName = "metalens_3d_1layer_direct_design_nosim"
 num_layers = 1
 
 def focussing_efficiency(intensity1, intensity2):
