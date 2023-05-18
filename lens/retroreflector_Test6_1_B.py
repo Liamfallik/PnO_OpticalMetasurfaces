@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "Retroreflector_Test4_8" # Source 15° Multiple points at monitor
+scriptName = "Retroreflector_Test6_1_S5_S15_Half_Symm_B" # Optimization of two layers, multiple angles
 symmetry = False # Impose symmetry around x = 0 line
 #
 # def sendNotification(message):
@@ -81,6 +81,29 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     # Filter the response
     return mpa.simple_2d_filter(x, h)
 
+# Filter and projection
+def mapping(x, eta, beta):
+
+    # filter
+    filtered_field = conic_filter2( # remain minimum feature size
+        x,
+        filter_radius,
+        design_region_width,
+        1, # design_region_height,
+        Nx,
+        Ny
+    )
+
+    if True:
+        filtered_field = (
+            npa.flipud(filtered_field) + filtered_field
+        ) / 2  # left-right symmetry
+
+    # projection
+    projected_field = mpa.tanh_projection(filtered_field, beta, eta)  # Make binary
+
+    # interpolate to actual materials
+    return projected_field.flatten()
 
 # checking if the directory demo_folder
 # exist or not.
@@ -101,7 +124,7 @@ Air = mp.Medium(index=1.0)
 # Dimensions
 num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.24]*num_layers # height of layer
+design_region_height = [0.24,0.24/2] # height of layer
 spacing = 4 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
@@ -159,6 +182,21 @@ source = [mp.EigenModeSource(
         center=source_center,
     ) for src in srcs]
 
+rot_angle2 = np.radians(5)
+kpoint2 = mp.Vector3(y=1).rotate(mp.Vector3(z=1), -rot_angle2)
+# source_center = [0, -(half_total_height - space_below / 2 + 0.4), 0] # Source 1 µm below lens
+# source_size = mp.Vector3(design_region_width, 0, 0) # Source covers width of lens
+# srcs = [mp.GaussianSource(frequency=fcen, fwidth=fwidth) for fcen in frequencies] # Gaussian source
+source2 = [mp.EigenModeSource(
+        src,
+        eig_band=1,
+        direction=mp.NO_DIRECTION,
+        eig_kpoint=kpoint2,
+        eig_parity=mp.ODD_Z,
+        size=source_size,
+        center=source_center,
+    ) for src in srcs]
+
 # Amount of variables
 Nx = int(design_region_resolution * design_region_width)
 Ny = 1 # int(design_region_resolution * design_region_height)
@@ -174,30 +212,6 @@ design_regions = [mpa.DesignRegion(
 ) for i in range(num_layers)]
 
 
-# Filter and projection
-def mapping(x, eta, beta):
-
-    # filter
-    filtered_field = conic_filter2( # remain minimum feature size
-        x,
-        filter_radius,
-        design_region_width,
-        1, # design_region_height,
-        Nx,
-        Ny
-    )
-
-    if symmetry:
-        filtered_field = (
-            npa.flipud(filtered_field) + filtered_field
-        ) / 2  # left-right symmetry
-
-    # projection
-    projected_field = mpa.tanh_projection(filtered_field, beta, eta)  # Make binary
-
-    # interpolate to actual materials
-    return projected_field.flatten()
-
 # Geometry: all is design region, no fixed parts
 geometry = [
     mp.Block(
@@ -211,7 +225,7 @@ geometry = [
     for design_region in design_regions
     ]
 geometry.append(mp.Block(
-        center = mp.Vector3(y=space_below / 2),
+        center = mp.Vector3(y=(Sy/2) - design_region_height[1] - (spacing/2)),
         size=mp.Vector3(x = Sx, y = spacing),
         material=SiO2
     ))
@@ -228,23 +242,19 @@ sim = mp.Simulation(
     symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
     resolution=resolution,
 )
+sim2 = mp.Simulation(
+    cell_size=cell_size,
+    boundary_layers=pml_layers,
+    geometry=geometry,
+    sources=source2,
+    default_material=Air, # Air
+    symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
+    resolution=resolution,
+)
 
-# Focus point, 7.5 µm beyond centre of lens
-
-focal_point_y = -100
-
-focal_points = []
-cor_x = (focal_point_y * np.tan(rot_angle)) - ((design_region_width + 2 * empty_space) / 2)
-
-for i in range(10):
-    focal_points.append(mp.Vector3(cor_x, focal_point_y, 0))
-    cor_x = cor_x + ((design_region_width + 2 * empty_space) / 10)
-
-# focal_points = [mp.Vector3(np.linspace((focal_point_y * np.tan(rot_angle)) -
-#                 ((design_region_width + 2 * empty_space) / 2), (focal_point_y * np.tan(rot_angle)) +
-#                ((design_region_width + 2 * empty_space) / 2), 10), focal_point_y, 0)]
-
-# far_x = [mp.Vector3(focal_point*np.tan(rot_angle), focal_point, 0)]
+# Focal point 1
+focal_point = -100
+far_x = [mp.Vector3(focal_point*np.tan(rot_angle), focal_point, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
         center=mp.Vector3(0, -(half_total_height - space_below / 2 + 0.5)), # 0.4 µm above lens
@@ -252,10 +262,14 @@ NearRegions = [ # region from which fields at focus point will be calculated
         weight= -1, # field contribution is positive (real)
     )
 ]
-FarFields = mpa.Near2FarFields(sim, NearRegions, focal_points) # Far-field object
+FarFields = mpa.Near2FarFields(sim, NearRegions, far_x) # Far-field object
 ob_list = [FarFields]
-# ob_list = [NearRegions]
-# ob_list = []
+
+# Focal point 2
+focal_point2 = -100
+far_x2 = [mp.Vector3(focal_point2*np.tan(rot_angle2), focal_point2, 0)]
+FarFields2 = mpa.Near2FarFields(sim2, NearRegions, far_x2) # Far-field object
+ob_list2 = [FarFields2]
 
 def J1(FF):
     print(FF)
@@ -283,6 +297,14 @@ opt = mpa.OptimizationProblem(
     frequencies=frequencies,
     maximum_run_time=2000,
 )
+opt2 = mpa.OptimizationProblem(
+    simulation=sim2,
+    objective_functions=[J1],
+    objective_arguments=ob_list2,
+    design_regions=design_regions,
+    frequencies=frequencies,
+    maximum_run_time=2000,
+)
 
 plt.figure()
 opt.plot2D(True)
@@ -303,7 +325,12 @@ def f(v, gradient, cur_beta):
     cur_iter[0] += 1
     reshaped_v = np.reshape(v, [num_layers, Nx])
 
-    f0, dJ_du = opt([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
+    f01, dJ_du1 = opt([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)]) # compute objective and gradient
+    f02, dJ_du2 = opt2([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])  # compute objective and gradient
+    f0 = np.mean([f01, f02])
+    dJ_du = [np.mean((arr1, arr2), axis=0) for arr1, arr2 in zip(dJ_du1, dJ_du2)]
+
+    # f0 = np.mean([f01,f02])
     # shape of dJ_du [# degrees of freedom, # frequencies] or [# design regions, # degrees of freedom, # frequencies]
 
     if gradient.size > 0:
@@ -317,13 +344,13 @@ def f(v, gradient, cur_beta):
 
         gradient[:] = np.reshape(gradi, [n])
 
-
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
 
     plt.figure() # Plot current design
     ax = plt.gca()
     opt.update_design([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])
+    opt2.update_design([mapping(reshaped_v[i, :], eta_i, cur_beta) for i in range(num_layers)])
     opt.plot2D(
         False,
         ax=ax,
@@ -336,13 +363,21 @@ def f(v, gradient, cur_beta):
     ax.axis("off")
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/img_{" + str(cur_iter[0]) + ".png")
 
+    opt2.plot2D(
+        False,
+        ax=ax,
+        plot_sources_flag=False,
+        plot_monitors_flag=False,
+        plot_boundaries_flag=False,
+    )
+    circ = Circle((2, 2), minimum_length / 2)
+    ax.add_patch(circ)
+    ax.axis("off")
+    plt.savefig("./" + scriptName + "/" + scriptName_i + "/img2_{" + str(cur_iter[0]) + ".png")
     # Efield = opt.sim.get_epsilon()
     # plt.figure()
     # plt.plot(Efield ** 2)
-
     plt.close()
-
-
 
     return np.real(f0)
 
@@ -365,7 +400,7 @@ with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
     var_file.write("resolution \t" + str(resolution) + "\n")
     var_file.write("wavelengths \t" + str(1/frequencies) + "\n")
     var_file.write("fwidth \t" + str(fwidth) + "\n")
-    var_file.write("focal_point \t" + str(focal_points) + "\n")
+    var_file.write("focal_point \t" + str(focal_point) + "\n")
     var_file.write("seed \t%d" % seed + "\n")
 
 num_samples = 10
@@ -382,6 +417,15 @@ for sample_nr in range(num_samples):
         simulation=sim,
         objective_functions=[J1],
         objective_arguments=ob_list,
+        design_regions=design_regions,
+        frequencies=frequencies,
+        maximum_run_time=2000,
+    )
+
+    opt2 = mpa.OptimizationProblem(
+        simulation=sim2,
+        objective_functions=[J1],
+        objective_arguments=ob_list2,
         design_regions=design_regions,
         frequencies=frequencies,
         maximum_run_time=2000,
@@ -438,8 +482,7 @@ for sample_nr in range(num_samples):
     # with open(file_path, 'rb') as file:
     #     x = np.load(file)
 
-
-    if symmetry:
+    if True:
         for i in range(num_layers):
             x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
     # x[Nx:] = np.zeros(n - Nx)
@@ -459,6 +502,7 @@ for sample_nr in range(num_samples):
     reshaped_x = np.reshape(x, [num_layers, Nx])
     mapped_x = [mapping(reshaped_x[i, :], eta_i, 4) for i in range(num_layers)]
     opt.update_design(mapped_x)
+    opt2.update_design(mapped_x)
     plt.figure()
     ax = plt.gca()
     opt.plot2D(
@@ -472,6 +516,20 @@ for sample_nr in range(num_samples):
     ax.add_patch(circ)
     ax.axis("off")
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
+
+    plt.figure()
+    ax = plt.gca()
+    opt2.plot2D(
+        False,
+        ax=ax,
+        plot_sources_flag=False,
+        plot_monitors_flag=False,
+        plot_boundaries_flag=False,
+    )
+    circ = Circle((2, 2), minimum_length / 2)
+    ax.add_patch(circ)
+    ax.axis("off")
+    plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign2.png")
 
     # Optimization
     cur_beta = 4 # 4
@@ -503,6 +561,7 @@ for sample_nr in range(num_samples):
     # Plot final design
     reshaped_x = np.reshape(x, [num_layers, Nx])
     opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
+    opt2.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
     plt.figure()
     ax = plt.gca()
     opt.plot2D(
@@ -517,8 +576,25 @@ for sample_nr in range(num_samples):
     ax.axis("off")
     plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesign.png")
 
+    plt.figure()
+    ax = plt.gca()
+    opt2.plot2D(
+        False,
+        ax=ax,
+        plot_sources_flag=False,
+        plot_monitors_flag=False,
+        plot_boundaries_flag=False,
+    )
+    circ = Circle((2, 2), minimum_length / 2)
+    ax.add_patch(circ)
+    ax.axis("off")
+    plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesign2.png")
+
     # Check intensities in optimal design
-    f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
+    f01, dJ_du1 = opt([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
+    f02, dJ_du2 = opt2([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
+    f0 = np.mean([f01, f02])
+    dJ_du = [np.mean((arr1, arr2), axis=0) for arr1, arr2 in zip(dJ_du1, dJ_du2)]
     # frequencies = opt.frequencies
 
     if f0 > best_f0:
@@ -555,6 +631,7 @@ for sample_nr in range(num_samples):
     space_below2 = 10  # includes PML
     Sy2 = half_total_height * 2 + space_below2
     cell_size = mp.Vector3(Sx, Sy2)
+    source_center2 = [0, -(half_total_height - space_below2 / 2 + 0.4), 0]  # Source 1 µm below lens
     design_variables2 = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in
                         range(num_layers)]  # SiO2
     design_regions2 = [mpa.DesignRegion(
@@ -578,47 +655,17 @@ for sample_nr in range(num_samples):
         for design_region in design_regions2
     ]
     geometry2.append(mp.Block(
-        center=mp.Vector3(y=space_below2 / 2),
+        center=mp.Vector3(y=(Sy2/2) - design_region_height[1] - (spacing/2)),
         size=mp.Vector3(x=Sx, y=spacing),
         material=SiO2
     ))
 
-    sim2 = mp.Simulation(
-        cell_size=cell_size,
-        boundary_layers=pml_layers,
-        geometry=geometry2,
-        sources=source,
-        default_material=Air,  # Air
-        symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
-        resolution=resolution,
-    )
-
-    opt2 = mpa.OptimizationProblem(
-        simulation=sim2,
-        objective_functions=[J1],
-        objective_arguments=ob_list,
-        design_regions=design_regions2,
-        frequencies=frequencies,
-        maximum_run_time=2000,
-    )
-
-    source_center2 = [0, -(half_total_height - space_below2 / 2 + 0.4), 0]  # Source 1 µm below lens
     opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
-
+    opt2.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
     # Plot fields
     for freq in frequencies:
-        opt.sim = mp.Simulation(
-            cell_size=mp.Vector3(Sx, Sy2),
-            boundary_layers=pml_layers,
-            # k_point=kpoint,
-            geometry=geometry2,
-            sources=source,
-            default_material=Air,
-            symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
-            resolution=resolution,
-        )
         src = mp.GaussianSource(frequency=freq, fwidth=fwidth)
-        source = [mp.EigenModeSource(
+        source3 = [mp.EigenModeSource(
             src,
             eig_band=1,
             direction=mp.NO_DIRECTION,
@@ -627,12 +674,47 @@ for sample_nr in range(num_samples):
             size=source_size,
             center=source_center2,
         )]
-        opt.sim.change_sources(source)
+        source4 = [mp.EigenModeSource(
+            src,
+            eig_band=1,
+            direction=mp.NO_DIRECTION,
+            eig_kpoint=kpoint2,
+            eig_parity=mp.ODD_Z,
+            size=source_size,
+            center=source_center2,
+        )]
+        opt.sim = mp.Simulation(
+            cell_size=mp.Vector3(Sx, Sy2),
+            boundary_layers=pml_layers,
+            # k_point=kpoint,
+            geometry=geometry2,
+            sources=source3,
+            default_material=Air,
+            symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
+            resolution=resolution,
+        )
 
         opt.sim.run(until=200)
         plt.figure(figsize=(Sx, Sy2))
         opt.sim.plot2D(fields=mp.Ez)
-        fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(1/freq) + ".png"
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/Angle15_fieldAtWavelength" + str(1/freq) + ".png"
+        plt.savefig(fileName)
+
+        opt2.sim2 = mp.Simulation(
+            cell_size=mp.Vector3(Sx, Sy2),
+            boundary_layers=pml_layers,
+            # k_point=kpoint,
+            geometry=geometry2,
+            sources=source4,
+            default_material=Air,
+            symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
+            resolution=resolution,
+        )
+
+        opt2.sim2.run(until=200)
+        plt.figure(figsize=(Sx, Sy2))
+        opt2.sim2.plot2D(fields=mp.Ez)
+        fileName = f"./" + scriptName + "/" + scriptName_i + "/Angle5_fieldAtWavelength" + str(1 / freq) + ".png"
         plt.savefig(fileName)
 
 
@@ -687,7 +769,7 @@ sim = mp.Simulation(resolution=resolution,
                     sources=source,
                     symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
 
-near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point_y),
+near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
                                         size=mp.Vector3(x=design_region_width)) for freq in frequencies]
 near_fields = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
                                   size=mp.Vector3(x=Sx, y=Sy2)) for freq in frequencies]

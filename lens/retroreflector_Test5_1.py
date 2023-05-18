@@ -15,8 +15,8 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "Retroreflector_Test4_8" # Source 15° Multiple points at monitor
-symmetry = False # Impose symmetry around x = 0 line
+scriptName = "Retroreflector_Test5_1_S0_Sym" # Source 0° first the metasurface that focalizes and then the retroreflector
+symmetry = True # Impose symmetry around x = 0 line
 #
 # def sendNotification(message):
 #     token = "5421873058:AAFIKUk8fSksmo2qe9rHZ0dmYo0CI12fYyU"
@@ -81,9 +81,6 @@ def conic_filter2(x, radius, Lx, Ly, Nx, Ny):
     # Filter the response
     return mpa.simple_2d_filter(x, h)
 
-
-# checking if the directory demo_folder
-# exist or not.
 if not os.path.exists("./" + scriptName):
     # if the demo_folder directory is not present
     # then create it.
@@ -99,7 +96,7 @@ TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-num_layers = 2 # amount of layers
+num_layers = 1 # amount of layers
 design_region_width = 10 # width of layer
 design_region_height = [0.24]*num_layers # height of layer
 spacing = 4 # spacing between layers
@@ -112,9 +109,9 @@ pml_size = 1.0 # thickness of absorbing boundary layer
 resolution = 50 # 50 --> amount of grid points per µm; needs to be > 49 for TiOx and 0.55 µm
 
 # System size
-space_below = 1.7 # includes PML
+space_below = 0 # includes PML
 Sx = 2 * pml_size + design_region_width + 2 * empty_space
-Sy = half_total_height * 2 + space_below
+Sy = 2 * pml_size + half_total_height * 2 + 10
 cell_size = mp.Vector3(Sx, Sy)
 
 
@@ -134,13 +131,14 @@ filter_radius = mpa.get_conic_radius_from_eta_e(minimum_length, eta_e)
 design_region_resolution = int(resolution) # = int(resolution)
 
 # Boundary conditions
-pml_layers = [mp.PML(pml_size, direction=mp.X), mp.PML(pml_size, direction=mp.Y, side=1)]
+# pml_layers = [mp.PML(pml_size, direction=mp.X), mp.PML(pml_size, direction=mp.Y, side=1)]
+pml_layers = [mp.PML(pml_size)]
 
 # Source
 fcen = frequencies[0]
 fwidth = 0.03 # 0.2
 # Set-up simulation object
-rot_angle = np.radians(15)
+rot_angle = np.radians(0)
 kpoint = mp.Vector3(y=1).rotate(mp.Vector3(z=1), -rot_angle)
 # kpoint = mp.Vector3(1,1,0)
 source_center = [0, -(half_total_height - space_below / 2 + 0.4), 0] # Source 1 µm below lens
@@ -168,7 +166,7 @@ design_variables = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEA
 design_regions = [mpa.DesignRegion(
     design_variables[i],
     volume=mp.Volume(
-        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + i * spacing + space_below / 2),
+        center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + space_below / 2),
         size=mp.Vector3(design_region_width, design_region_height[i], 0),
     ),
 ) for i in range(num_layers)]
@@ -211,7 +209,7 @@ geometry = [
     for design_region in design_regions
     ]
 geometry.append(mp.Block(
-        center = mp.Vector3(y=space_below / 2),
+        center = mp.Vector3(y=(half_total_height/2 + spacing/2)),
         size=mp.Vector3(x = Sx, y = spacing),
         material=SiO2
     ))
@@ -230,29 +228,16 @@ sim = mp.Simulation(
 )
 
 # Focus point, 7.5 µm beyond centre of lens
-
-focal_point_y = -100
-
-focal_points = []
-cor_x = (focal_point_y * np.tan(rot_angle)) - ((design_region_width + 2 * empty_space) / 2)
-
-for i in range(10):
-    focal_points.append(mp.Vector3(cor_x, focal_point_y, 0))
-    cor_x = cor_x + ((design_region_width + 2 * empty_space) / 10)
-
-# focal_points = [mp.Vector3(np.linspace((focal_point_y * np.tan(rot_angle)) -
-#                 ((design_region_width + 2 * empty_space) / 2), (focal_point_y * np.tan(rot_angle)) +
-#                ((design_region_width + 2 * empty_space) / 2), 10), focal_point_y, 0)]
-
-# far_x = [mp.Vector3(focal_point*np.tan(rot_angle), focal_point, 0)]
+focal_point = spacing + (half_total_height/2)
+far_x = [mp.Vector3(0, focal_point, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
-        center=mp.Vector3(0, -(half_total_height - space_below / 2 + 0.5)), # 0.4 µm above lens
+        center=mp.Vector3(0, half_total_height + 0.4), # 0.4 µm above lens
         size=mp.Vector3(design_region_width + 2*empty_space, 0), # spans design region
-        weight= -1, # field contribution is positive (real)
+        weight= 1, # field contribution is positive (real)
     )
 ]
-FarFields = mpa.Near2FarFields(sim, NearRegions, focal_points) # Far-field object
+FarFields = mpa.Near2FarFields(sim, NearRegions, far_x) # Far-field object
 ob_list = [FarFields]
 # ob_list = [NearRegions]
 # ob_list = []
@@ -286,7 +271,7 @@ opt = mpa.OptimizationProblem(
 
 plt.figure()
 opt.plot2D(True)
-plt.savefig("./" + scriptName + "/optimizationDesign.png")
+plt.savefig("./" + scriptName + "/OptimizationDesignFirstLens.png")
 
 # Gradient
 evaluation_history = [] # Keep track of objective function evaluations
@@ -316,7 +301,6 @@ def f(v, gradient, cur_beta):
                 reshaped_v, eta_i, cur_beta, dJ_du) # backprop
 
         gradient[:] = np.reshape(gradi, [n])
-
 
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
@@ -365,8 +349,10 @@ with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
     var_file.write("resolution \t" + str(resolution) + "\n")
     var_file.write("wavelengths \t" + str(1/frequencies) + "\n")
     var_file.write("fwidth \t" + str(fwidth) + "\n")
-    var_file.write("focal_point \t" + str(focal_points) + "\n")
+    var_file.write("focal_point \t" + str(focal_point) + "\n")
     var_file.write("seed \t%d" % seed + "\n")
+
+
 
 num_samples = 10
 # store best objective value
@@ -434,6 +420,7 @@ for sample_nr in range(num_samples):
 
 
     # x = np.reshape(reshaped_x, [n])# + 0.5 * (-0.5 + np.random.rand(n))
+
     # file_path = "x.npy"
     # with open(file_path, 'rb') as file:
     #     x = np.load(file)
@@ -471,12 +458,12 @@ for sample_nr in range(num_samples):
     circ = Circle((2, 2), minimum_length / 2)
     ax.add_patch(circ)
     ax.axis("off")
-    plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesign.png")
+    plt.savefig("./" + scriptName + "/" + scriptName_i + "/firstDesignFirstLens.png")
 
     # Optimization
     cur_beta = 4 # 4
     beta_scale = 2 # 2
-    num_betas = 7 # 6
+    num_betas = 7# 6
     update_factor = 10 # 12
     totalIterations = num_betas * update_factor
     ftol = 1e-4 # 1e-5
@@ -515,7 +502,7 @@ for sample_nr in range(num_samples):
     circ = Circle((2, 2), minimum_length / 2)
     ax.add_patch(circ)
     ax.axis("off")
-    plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesign.png")
+    plt.savefig("./" + scriptName + "/" + scriptName_i + "/finalDesignFirstLens.png")
 
     # Check intensities in optimal design
     f0, dJ_du = opt([mapping(reshaped_x[i, :], eta_i, cur_beta // 2) for i in range(num_layers)], need_gradient=False)
@@ -528,90 +515,74 @@ for sample_nr in range(num_samples):
 
     print("Objective_value = " + str(f0))
 
-    # intensities = np.abs(opt.get_objective_arguments()[0][0, :, 2]) ** 2
-    # print(opt.get_objective_arguments())
-
-    # f0s[sample_nr, :] = intensities
-
     # Plot intensities
-    # plt.figure()
-    # plt.plot(1 / frequencies, intensities, "-o")
-    # plt.grid(True)
-    # plt.xlabel("Wavelength (microns)")
-    # plt.ylabel("|Ez|^2 Intensities")
-    # plt.savefig("./" + scriptName + "/" + scriptName_i + "/intensities.png")
-    #
-    # np.save("./" + scriptName + "/" + scriptName_i + "/v", x)
-    #
-    # animate.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animation.gif")
-    # animateField.to_gif(fps=5, filename="./" + scriptName + "/" + scriptName_i + "/animationField.gif")
+###############################################################################################
 
     # Sy2 = 20
     # geometry.append(mp.Block(
-    #     center=mp.Vector3(y=-(Sy2 / 2 + Sy / 2) / 2),
-    #     size=mp.Vector3(x=Sx, y=(Sy2 / 2 - Sy / 2)),
+    #     center=mp.Vector3(y=(half_total_height + spacing / 2)),
+    #     size=mp.Vector3(x=Sx, y=spacing),
     #     material=SiO2
     # ))
-    space_below2 = 10  # includes PML
-    Sy2 = half_total_height * 2 + space_below2
-    cell_size = mp.Vector3(Sx, Sy2)
-    design_variables2 = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in
-                        range(num_layers)]  # SiO2
-    design_regions2 = [mpa.DesignRegion(
-        design_variables[i],
-        volume=mp.Volume(
-            center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + i * spacing + space_below2 / 2),
-            size=mp.Vector3(design_region_width, design_region_height[i], 0),
-        ),
-    ) for i in range(num_layers)]
+    #
+    # cell_size = mp.Vector3(Sx, Sy2)
+    # design_variables2 = [mp.MaterialGrid(mp.Vector3(Nx), SiO2, TiOx, grid_type="U_MEAN") for i in
+    #                     range(num_layers)]  # SiO2
+    # design_regions2 = [mpa.DesignRegion(
+    #     design_variables[i],
+    #     volume=mp.Volume(
+    #         center=mp.Vector3(y=-half_total_height + 0.5 * design_region_height[i] + sum(design_region_height[:i]) + i * spacing + space_below2 / 2),
+    #         size=mp.Vector3(design_region_width, design_region_height[i], 0),
+    #     ),
+    # ) for i in range(num_layers)]
 
     # Geometry: all is design region, no fixed parts
-    geometry2 = [
-        mp.Block(
-            center=design_region.center, size=design_region.size, material=design_region.design_parameters
-        )
-        # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
-        #
-        # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
-        # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
-        # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
-        for design_region in design_regions2
-    ]
-    geometry2.append(mp.Block(
-        center=mp.Vector3(y=space_below2 / 2),
-        size=mp.Vector3(x=Sx, y=spacing),
-        material=SiO2
-    ))
-
-    sim2 = mp.Simulation(
-        cell_size=cell_size,
-        boundary_layers=pml_layers,
-        geometry=geometry2,
-        sources=source,
-        default_material=Air,  # Air
-        symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
-        resolution=resolution,
-    )
-
-    opt2 = mpa.OptimizationProblem(
-        simulation=sim2,
-        objective_functions=[J1],
-        objective_arguments=ob_list,
-        design_regions=design_regions2,
-        frequencies=frequencies,
-        maximum_run_time=2000,
-    )
-
-    source_center2 = [0, -(half_total_height - space_below2 / 2 + 0.4), 0]  # Source 1 µm below lens
-    opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
+    # geometry2 = [
+    #     mp.Block(
+    #         center=design_region.center, size=design_region.size, material=design_region.design_parameters
+    #     )
+    #     # mp.Block(center=design_region.center, size=design_region.size, material=design_variables, e1=mp.Vector3(x=-1))
+    #     #
+    #     # The commented lines above impose symmetry by overlapping design region with the same design variable. However,
+    #     # currently there is an issue of doing that; instead, we use an alternative approach to impose symmetry.
+    #     # See https://github.com/NanoComp/meep/issues/1984 and https://github.com/NanoComp/meep/issues/2093
+    #     for design_region in design_regions2
+    # ]
+    # geometry2.append(mp.Block(
+    #     center=mp.Vector3(y=space_below2 / 2),
+    #     size=mp.Vector3(x=Sx, y=spacing),
+    #     material=SiO2
+    # ))
+    #
+    # sim2 = mp.Simulation(
+    #     cell_size=cell_size,
+    #     boundary_layers=pml_layers,
+    #     geometry=geometry2,
+    #     sources=source,
+    #     default_material=Air,  # Air
+    #     symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
+    #     resolution=resolution,
+    # )
+    #
+    # opt2 = mpa.OptimizationProblem(
+    #     simulation=sim2,
+    #     objective_functions=[J1],
+    #     objective_arguments=ob_list,
+    #     design_regions=design_regions2,
+    #     frequencies=frequencies,
+    #     maximum_run_time=2000,
+    # )
+    #
+    # source_center2 = [0, -(half_total_height - space_below2 / 2 + 0.4), 0]  # Source 1 µm below lens
+    # opt.update_design([mapping(reshaped_x[i, :], eta_i, cur_beta) for i in range(num_layers)])
 
     # Plot fields
     for freq in frequencies:
         opt.sim = mp.Simulation(
-            cell_size=mp.Vector3(Sx, Sy2),
+            cell_size=mp.Vector3(Sx, Sy),
             boundary_layers=pml_layers,
             # k_point=kpoint,
-            geometry=geometry2,
+            geometry=geometry,
             sources=source,
             default_material=Air,
             symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None,
@@ -625,12 +596,12 @@ for sample_nr in range(num_samples):
             eig_kpoint=kpoint,
             eig_parity=mp.ODD_Z,
             size=source_size,
-            center=source_center2,
+            center=source_center,
         )]
         opt.sim.change_sources(source)
 
         opt.sim.run(until=200)
-        plt.figure(figsize=(Sx, Sy2))
+        plt.figure(figsize=(Sx, Sy))
         opt.sim.plot2D(fields=mp.Ez)
         fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(1/freq) + ".png"
         plt.savefig(fileName)
@@ -687,7 +658,7 @@ sim = mp.Simulation(resolution=resolution,
                     sources=source,
                     symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
 
-near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point_y),
+near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
                                         size=mp.Vector3(x=design_region_width)) for freq in frequencies]
 near_fields = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
                                   size=mp.Vector3(x=Sx, y=Sy2)) for freq in frequencies]

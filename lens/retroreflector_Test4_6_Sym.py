@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "Retroreflector_Test4_8" # Source 15° Multiple points at monitor
+scriptName = "Retroreflector_Test4_6_Half_Sym" # Source 15° Reduce the second metasurface to the half
 symmetry = False # Impose symmetry around x = 0 line
 #
 # def sendNotification(message):
@@ -101,7 +101,7 @@ Air = mp.Medium(index=1.0)
 # Dimensions
 num_layers = 2 # amount of layers
 design_region_width = 10 # width of layer
-design_region_height = [0.24]*num_layers # height of layer
+design_region_height = [0.24, 0.24/2] # height of layer
 spacing = 4 # spacing between layers
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 empty_space = 0 # free space in simulation left and right of layer
@@ -186,8 +186,8 @@ def mapping(x, eta, beta):
         Nx,
         Ny
     )
-
-    if symmetry:
+    # Modified
+    if True:
         filtered_field = (
             npa.flipud(filtered_field) + filtered_field
         ) / 2  # left-right symmetry
@@ -211,7 +211,7 @@ geometry = [
     for design_region in design_regions
     ]
 geometry.append(mp.Block(
-        center = mp.Vector3(y=space_below / 2),
+        center = mp.Vector3(y=(Sy/2) - design_region_height[1] - (spacing/2)),
         size=mp.Vector3(x = Sx, y = spacing),
         material=SiO2
     ))
@@ -230,21 +230,8 @@ sim = mp.Simulation(
 )
 
 # Focus point, 7.5 µm beyond centre of lens
-
-focal_point_y = -100
-
-focal_points = []
-cor_x = (focal_point_y * np.tan(rot_angle)) - ((design_region_width + 2 * empty_space) / 2)
-
-for i in range(10):
-    focal_points.append(mp.Vector3(cor_x, focal_point_y, 0))
-    cor_x = cor_x + ((design_region_width + 2 * empty_space) / 10)
-
-# focal_points = [mp.Vector3(np.linspace((focal_point_y * np.tan(rot_angle)) -
-#                 ((design_region_width + 2 * empty_space) / 2), (focal_point_y * np.tan(rot_angle)) +
-#                ((design_region_width + 2 * empty_space) / 2), 10), focal_point_y, 0)]
-
-# far_x = [mp.Vector3(focal_point*np.tan(rot_angle), focal_point, 0)]
+focal_point = -100
+far_x = [mp.Vector3(focal_point*np.tan(rot_angle), focal_point, 0)]
 NearRegions = [ # region from which fields at focus point will be calculated
     mp.Near2FarRegion(
         center=mp.Vector3(0, -(half_total_height - space_below / 2 + 0.5)), # 0.4 µm above lens
@@ -252,7 +239,7 @@ NearRegions = [ # region from which fields at focus point will be calculated
         weight= -1, # field contribution is positive (real)
     )
 ]
-FarFields = mpa.Near2FarFields(sim, NearRegions, focal_points) # Far-field object
+FarFields = mpa.Near2FarFields(sim, NearRegions, far_x) # Far-field object
 ob_list = [FarFields]
 # ob_list = [NearRegions]
 # ob_list = []
@@ -317,7 +304,6 @@ def f(v, gradient, cur_beta):
 
         gradient[:] = np.reshape(gradi, [n])
 
-
     evaluation_history.append(np.real(f0)) # add objective function evaluation to list
 
 
@@ -365,7 +351,7 @@ with open("./" + scriptName + "/used_variables.txt", 'w') as var_file:
     var_file.write("resolution \t" + str(resolution) + "\n")
     var_file.write("wavelengths \t" + str(1/frequencies) + "\n")
     var_file.write("fwidth \t" + str(fwidth) + "\n")
-    var_file.write("focal_point \t" + str(focal_points) + "\n")
+    var_file.write("focal_point \t" + str(focal_point) + "\n")
     var_file.write("seed \t%d" % seed + "\n")
 
 num_samples = 10
@@ -438,8 +424,8 @@ for sample_nr in range(num_samples):
     # with open(file_path, 'rb') as file:
     #     x = np.load(file)
 
-
-    if symmetry:
+    # Modified
+    if True:
         for i in range(num_layers):
             x[Nx*i:Nx*(i+1)] = (npa.flipud(x[Nx*i:Nx*(i+1)]) + x[Nx*i:Nx*(i+1)]) / 2  # left-right symmetry
     # x[Nx:] = np.zeros(n - Nx)
@@ -578,7 +564,7 @@ for sample_nr in range(num_samples):
         for design_region in design_regions2
     ]
     geometry2.append(mp.Block(
-        center=mp.Vector3(y=space_below2 / 2),
+        center=mp.Vector3(y=(Sy2/2) - design_region_height[1] - (spacing/2)),
         size=mp.Vector3(x=Sx, y=spacing),
         material=SiO2
     ))
@@ -687,7 +673,7 @@ sim = mp.Simulation(resolution=resolution,
                     sources=source,
                     symmetries=[mp.Mirror(direction=mp.X)] if symmetry else None)
 
-near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point_y),
+near_fields_focus = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(y=focal_point),
                                         size=mp.Vector3(x=design_region_width)) for freq in frequencies]
 near_fields = [sim.add_dft_fields([mp.Ez], freq, 0, 1, center=mp.Vector3(),
                                   size=mp.Vector3(x=Sx, y=Sy2)) for freq in frequencies]
