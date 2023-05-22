@@ -15,7 +15,7 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "Retroreflector_Test4_6_Half_Sym" # Source 15° Reduce the second metasurface to the half
+scriptName = "Retroreflector_Test4_6_Half_Sym_850" # Source 15° Reduce the second metasurface to the half
 symmetry = False # Impose symmetry around x = 0 line
 #
 # def sendNotification(message):
@@ -121,7 +121,7 @@ cell_size = mp.Vector3(Sx, Sy)
 
 # Frequencies
 nf = 1 # Amount of frequencies studied
-frequencies = 1./np.linspace(0.55, 0.65, nf)
+frequencies = 1./np.linspace(0.85, 0.90, nf)
 
 # Feature size constraints
 minimum_length = 0.09  # minimum length scale (microns)
