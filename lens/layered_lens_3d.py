@@ -16,12 +16,14 @@ import requests  # send notifications
 
 scriptName = "metalens_3d_2layer_exp_2"
 num_layers = 2
-start_from_direct = True
+start_from_direct = False
 direct_design = False
 symmetry = False
 exponential_thickness = True # if False: uniform thickness
 
-#mp.divide_parallel_processes(16)
+start_from_data = True
+if start_from_data:
+    data_to_start_from = "x_30.npy"
 
 
 def sendNotification(message):
@@ -141,17 +143,17 @@ mp.verbosity(1)  # amount of info printed during simulation
 Si = mp.Medium(index=3.4)
 SiO2 = mp.Medium(index=1.45)
 NbOx = mp.Medium(index=2.5)
-TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution = 49
+TiOx = mp.Medium(index=2.7) # 550 nm / 2.7 = 204 nm --> 20.4 nm resolution >= 49
 Air = mp.Medium(index=1.0)
 
 # Dimensions
-design_region_width = 10
+design_region_width = 10 # width of the lens [µm]
 if exponential_thickness:
     design_region_height = []
     for i in range(num_layers):
-        design_region_height.append(0.24 / 2**i)
+        design_region_height.append(0.24 / 2**i) # optimal for wavelength 600 nm with lens made of SiO2 and TiO2
 else:
-    design_region_height = [0.48 / (num_layers + 1)]*num_layers
+    design_region_height = [0.48 / (num_layers + 1)]*num_layers # optimal for wavelength 600 nm with lens made of SiO2 and TiO2
 spacing = 0
 half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing / 2
 
@@ -166,7 +168,7 @@ cell_size = mp.Vector3(Sx, Sx, Sz)
 
 # Frequencies
 nf = 1  # Amount of frequencies studied
-freq = 1/0.6
+freq = 1/0.6 # 600 nm wavelength
 # frequencies = np.array([1 / 1.5, 1 / 1.55, 1 / 1.6])
 frequencies = np.array([freq]) # 1. / np.linspace(0.55, 0.65, 3)
 
@@ -394,9 +396,9 @@ if start_from_direct: # make the direct design
                         reshaped_x[i, j, k] = 1
                     else:
                         reshaped_x[i, j, k] = 0
-                reshaped_x[i, -j, k] = reshaped_x[i, j, k]
-                reshaped_x[i, j, -k] = reshaped_x[i, j, k]
-                reshaped_x[i, -j, -k] = reshaped_x[i, j, k]
+                reshaped_x[i, -j-1, k] = reshaped_x[i, j, k]
+                reshaped_x[i, j, -k-1] = reshaped_x[i, j, k]
+                reshaped_x[i, -j-1, -k-1] = reshaped_x[i, j, k]
 
 
     if symmetry:
@@ -407,6 +409,9 @@ if start_from_direct: # make the direct design
         x = np.reshape(xi, [n])
     else: # not symmetric
         x = (1-random_perturbation) * np.reshape(reshaped_x, [n]) + random_perturbation * (np.random.rand(n)) # add randomization
+elif start_from_data:
+    with open(data_to_start_from, 'rb') as file:
+        x = np.load(file)
 else: # don't start from direct design
     x = np.random.rand(n) # give a random starting design
 
@@ -439,6 +444,8 @@ if direct_design:
 beta_scale = 2
 if direct_design:
     num_betas = 0
+elif start_from_data:
+    num_betas = 1
 else:
     num_betas = 2 #6
 update_factor = 15 #20

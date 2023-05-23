@@ -15,14 +15,14 @@ import random
 from math import pi
 
 start0 = datetime.datetime.now()
-scriptName = "metalens_img_RandomSampling_direct_design_2layers_uni"
+scriptName = "metalens_img_RandomSampling_direct_design_3layers_exp_4"
 symmetry = True # Impose symmetry around x = 0 line
 start_from_direct = True # starting conditions is direct design + some randomization
 direct_design = True # we don't do inverse design, just calculate the properties of direct design
-exponential_thickness = False # if False: uniform thickness
+exponential_thickness = True # if False: uniform thickness
 
 # Dimensions
-num_layers = 2 # amount of layers
+num_layers = 3 # amount of layers
 design_region_width = 10 # width of layer
 if exponential_thickness:
     design_region_height = []
@@ -35,10 +35,7 @@ half_total_height = sum(design_region_height) / 2 + (num_layers - 1) * spacing /
 empty_space = 0 # free space in simulation left and right of layer
 focal_point = 6 # focal length
 
-if direct_design:
-    num_samples = 5
-else:
-    num_samples = 15 # 30. Amount of random starting points
+num_samples = 20
 
 
 def sendNotification(message):
@@ -603,7 +600,7 @@ for sample_nr in range(num_samples):
     ))
 
     # Plot fields
-    if not direct_design: # takes relatively too much time for direct design
+    if not direct_design or direct_design: # takes relatively too much time for direct design
         for freq in frequencies:
             opt.sim = mp.Simulation(
                 cell_size=mp.Vector3(Sx, Sy2),
@@ -729,6 +726,7 @@ for freq in frequencies:
 
     # plot colormesh
     if mp.am_really_master():
+        # intensity in color map in XY plane
         plt.figure(dpi=150)
         plt.pcolormesh(xj, yj, np.rot90(np.rot90(np.rot90(scattered_amplitude))), cmap='inferno', shading='gouraud',
                        vmin=0,
@@ -759,6 +757,13 @@ for freq in frequencies:
 
         efficiency.append(focussing_efficiency(focussed_amplitude, before_amplitude))
         FWHM.append(get_FWHM(focussed_amplitude, xi))
+
+        # if direct_design:
+        #     plt.figure(figsize=(Sx, Sy2))
+        #     sim.plot2D(fields=mp.Ez)
+        #     fileName = f"./" + scriptName + "/" + scriptName_i + "/fieldAtWavelength" + str(
+        #         int(100 / freq) / 100) + ".png"
+        #     plt.savefig(fileName)
 
 
 

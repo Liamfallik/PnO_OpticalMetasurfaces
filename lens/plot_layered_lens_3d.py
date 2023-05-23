@@ -14,8 +14,8 @@ import random
 import datetime
 import requests  # send notifications
 
-scriptName = "metalens_3d_1layer_direct_design_nosim"
-num_layers = 1
+scriptName = "metalens_3d_1layer_direct_design_3_continued_woSim"
+num_layers = 2
 
 def focussing_efficiency(intensity1, intensity2):
     total_power = sum(intensity2)
@@ -108,6 +108,7 @@ file_path = "./" + scriptName + "/intensity_at_focus_line.npy"
 with open(file_path, 'rb') as file:
     focussed_amplitude_line = np.load(file)
 
+
 file_path = "./" + scriptName + "/intensity_at_focus.npy"
 with open(file_path, 'rb') as file:
     focussed_amplitude = np.load(file)
@@ -123,12 +124,9 @@ with open(file_path, 'rb') as file:
 print(np.size(before_amplitude))
 print(sum(sum(before_amplitude)) / np.size(before_amplitude))
 
-# [xi, yi, zi, wi] = sim.get_array_metadata(dft_cell=near_fields_focus)
 xi = np.linspace(-design_region_width / 2, design_region_width / 2, max(np.shape(focussed_amplitude)))
 yi = xi
-# [xk, yk, zk, wk] = sim.get_array_metadata(dft_cell=near_fields_focus_line)
 xk = np.linspace(-design_region_width / 2, design_region_width / 2, max(np.shape(focussed_amplitude_line)))
-# [xj, yj, zj, wj] = sim.get_array_metadata(dft_cell=near_fields)
 xj = np.linspace(-Sx / 2, Sx / 2, np.shape(scattered_amplitude)[0])
 zj = np.linspace(-Sz2 / 2, Sz2 / 2, np.shape(scattered_amplitude)[1])
 
@@ -186,7 +184,7 @@ plt.gca().set_aspect('equal')
 plt.xlabel('x (μm)')
 plt.ylabel('y (μm)')
 
-# ensure that the height of the colobar matches that of the plot
+# # ensure that the height of the colobar matches that of the plot
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 divider = make_axes_locatable(plt.gca())
