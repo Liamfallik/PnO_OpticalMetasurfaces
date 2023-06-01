@@ -1,10 +1,11 @@
+"""
+Simulated annealing optimization of the thicknesses of a frequency splitter.
+"""
+
 import numpy as np
 import random
 from matplotlib import pyplot as plt
 import os
-"""
-Simulated annealing optimization of the thicknesses of a lens.
-"""
 
 def phase(freqs, thickness, deltan):
     """

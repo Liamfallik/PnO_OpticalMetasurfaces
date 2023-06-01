@@ -1,3 +1,11 @@
+"""
+In case the plotting is succesful (happens a lot when using parallel meep), this script can be used to
+plot the output files.
+
+Make sure to change scriptName to the name of the folder in which the files are located. And make sure that the
+parameters are the same (number of layers, size, etc.).
+"""
+
 import os
 import meep as mp
 import meep.adjoint as mpa

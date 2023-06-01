@@ -1,3 +1,7 @@
+"""
+Uses the Random Sampling method for 2D lenses, as discussed in the report.
+"""
+
 import os
 import meep as mp
 import meep.adjoint as mpa
@@ -18,7 +22,7 @@ start0 = datetime.datetime.now()
 scriptName = "metalens_img_RandomSampling_direct_design_3layers_exp_4"
 symmetry = True # Impose symmetry around x = 0 line
 start_from_direct = True # starting conditions is direct design + some randomization
-direct_design = True # we don't do inverse design, just calculate the properties of direct design
+direct_design = True # if True: don't do inverse design, just calculate the properties of direct design
 exponential_thickness = True # if False: uniform thickness
 
 # Dimensions

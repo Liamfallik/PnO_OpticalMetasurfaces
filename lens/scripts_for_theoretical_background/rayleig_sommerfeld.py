@@ -1,3 +1,7 @@
+"""
+Rayleigh-Sommerfeld integrals for 2D and 3D lenses. Theory in report.
+"""
+
 from math import pi
 import numpy as np
 from matplotlib import pyplot as plt

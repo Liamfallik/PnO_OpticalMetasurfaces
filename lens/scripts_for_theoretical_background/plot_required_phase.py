@@ -1,3 +1,7 @@
+"""
+Plots the required frequencies, as discussed in the report.
+"""
+
 import numpy as np
 import random
 from matplotlib import pyplot as plt
@@ -25,7 +29,8 @@ plt.xlabel("x [µm]")
 plt.ylabel("phase [/360°]")
 plt.xlim((x[0], x[-1]))
 
-frequencies = [1/0.47, 1/0.65]
+n = 1.45
+frequencies = [1/0.47 * n, 1/0.65 * n]
 nf = len(frequencies)
 focal_point = 6
 off_sets = [-3, 3]

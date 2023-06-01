@@ -1,3 +1,7 @@
+"""
+3D lenses
+"""
+
 import os
 import meep as mp
 import meep.adjoint as mpa
@@ -18,10 +22,10 @@ scriptName = "metalens_3d_2layer_exp_2"
 num_layers = 2
 start_from_direct = False
 direct_design = False
-symmetry = False
+symmetry = False # doesn't work well for inverse design
 exponential_thickness = True # if False: uniform thickness
 
-start_from_data = True
+start_from_data = False
 if start_from_data:
     data_to_start_from = "x_30.npy"
 
